@@ -3,6 +3,7 @@
 * Module purpose: resolve and exchange staged TBC armor/tier tokens for Playerbots.
 * Scope: server-side only, Playerbots only, WotLK support excluded for now.
 * Current state: discovery, resolver, dry-run exchange, real exchange, auto exchange, and loot-pass support are implemented for validated TBC mappings only.
+* SQL packaging: module-owned tables are created from `sql/world/base/` through the normal AzerothCore DB update flow.
 
 # Hard Rules
 
@@ -28,6 +29,7 @@
 * Auto exchange uses a delayed per-bot queue and is Playerbot-only.
 * Loot-pass uses the Playerbots callback and only forces PASS for staged tokens when the resolved reward is already owned/equipped.
 * No SQL runs in hot loot-roll logic.
+* If the mapping table exists but is empty, startup continues and discovery is required before exchange.
 
 # Production Config
 
@@ -51,6 +53,7 @@
 # Rollout Checklist
 
 * Keep `DiscoveryWriteDb = 0` unless regenerating staged mappings.
+* Fresh install depends on the module SQL base files being applied by the DB updater.
 * Confirm `.tokenex status` shows the expected gate state, mapping count, and queue size.
 * Start with `DryRun = 1` if testing changes to exchange logic.
 * Keep `AutoExchangeEnable = 0` until automatic processing is intentionally enabled.
@@ -63,6 +66,7 @@
 * Hybrid class classification can require spec/role detection and occasional family-name hints.
 * The loot-pass callback must stay no-op when caches are unavailable or resolution is ambiguous.
 * Queue state must stay bounded and cleared on logout to avoid stale processing.
+* Empty mapping tables should log a clear discovery-required warning instead of crashing.
 
 # Completed Phases
 

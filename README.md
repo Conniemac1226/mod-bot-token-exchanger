@@ -48,6 +48,18 @@ Use `.tokenex discover tbc` to regenerate staged mappings from runtime DBC data 
 
 Keep `BotTokenExchanger.DiscoveryWriteDb = 0` unless you are intentionally refreshing the mapping table.
 
+### First Run Mapping Population
+
+On a fresh install, the SQL schema is created by the normal AzerothCore DB update flow.
+
+If the staged mapping table is empty and you want to populate it:
+
+1. Set `BotTokenExchanger.DiscoveryWriteDb = 1`
+2. Run `.tokenex discover tbc`
+3. Set `BotTokenExchanger.DiscoveryWriteDb = 0` afterward
+
+If the table exists but is empty, the module starts normally and discovery is required before any exchange can occur.
+
 ## Status
 
 Use `.tokenex status` to verify:

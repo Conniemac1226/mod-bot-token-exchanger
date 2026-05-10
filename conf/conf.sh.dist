@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+# Custom SQL - used by db_assembler.sh
+# Keep only the required module paths here.
+
+DB_WORLD_CUSTOM_PATHS+=(
+    $MOD_BOT_TOKEN_EXCHANGER_ROOT"/sql/world/base/"
+)
+
+DB_WORLD_UPDATE_PATHS+=(
+    $MOD_BOT_TOKEN_EXCHANGER_ROOT"/sql/world/updates/"
+)

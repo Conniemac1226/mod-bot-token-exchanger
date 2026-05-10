@@ -1720,6 +1720,12 @@ void BotTokenExchangerMgr::LoadResolverMappings()
 
     _resolverLoaded = true;
     LOG_INFO("bot_token_exchanger", "Loaded {} staged token resolver mappings from bot_token_exchanger_token_map", loadedCount);
+    if (!loadedCount)
+    {
+        LOG_WARN(
+            "bot_token_exchanger",
+            "No staged token resolver mappings were loaded. Run .tokenex discover tbc with DiscoveryWriteDb = 1 to populate bot_token_exchanger_token_map.");
+    }
 }
 
 std::vector<BotTokenExchangerMgr::ResolverEntry> const* BotTokenExchangerMgr::GetResolverEntries(uint32 tokenItemId)
