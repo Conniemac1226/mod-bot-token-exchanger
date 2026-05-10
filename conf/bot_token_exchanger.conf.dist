@@ -1,0 +1,65 @@
+[worldserver]
+
+# Enable the module.
+# Default: 1
+BotTokenExchanger.Enable = 1
+
+# Enable debug logging for staged-token decisions.
+# Default: 0
+BotTokenExchanger.Debug = 0
+
+# Only process session-bot characters.
+# Default: 1
+BotTokenExchanger.OnlyPlayerbots = 1
+
+# Write staged discovery mappings into bot_token_exchanger_token_map.
+# Default: 0
+BotTokenExchanger.DiscoveryWriteDb = 0
+
+# Resolve staged token rewards without exchanging items.
+# Default: 1
+BotTokenExchanger.ResolveOnly = 1
+
+# Allow read-only dry-run exchange resolution without mutating inventory.
+# Default: 0
+BotTokenExchanger.DryRun = 0
+
+# Allow Playerbots to pass staged token rolls when the resolved reward is already owned.
+# Default: 1
+BotTokenExchanger.PlayerbotLootPassEnable = 1
+
+# Allow real exchange execution.
+# Default: 1
+BotTokenExchanger.ExchangeEnable = 1
+
+# Temporary debug-only bot targeting by exact name for console-safe tests.
+# Default: 0
+BotTokenExchanger.AllowDebugTargetCommand = 0
+
+# Enable delayed automatic token exchange queueing for Playerbots.
+# Default: 1
+BotTokenExchanger.AutoExchangeEnable = 1
+
+# Delay before queued auto exchange is processed.
+# Default: 1500
+BotTokenExchanger.AutoExchangeDelayMs = 1500
+
+# Queue auto exchange when a staged token is stored on loot/item receipt.
+# Default: 1
+BotTokenExchanger.AutoExchangeOnLoot = 1
+
+# Queue auto exchange when a Playerbot logs in.
+# Default: 0
+BotTokenExchanger.AutoExchangeOnLogin = 0
+
+# Maximum exchanges per bot per processing pass.
+# Default: 1
+BotTokenExchanger.AutoExchangeMaxPerBotPerPass = 1
+
+# Placeholder for optional owner announcements in later phases.
+# Default: 0
+BotTokenExchanger.AnnounceToBotOwner = 0
+
+# Reserved for exchange queue processing.
+# Default: 1000
+BotTokenExchanger.ExchangeDelayMs = 1000
