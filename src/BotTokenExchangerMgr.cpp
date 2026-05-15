@@ -530,7 +530,7 @@ bool BotTokenExchangerMgr::IsHybridClass(uint32 classId)
 
 bool BotTokenExchangerMgr::UsesRoleFiltering(uint32 classId)
 {
-    return classId == CLASS_WARRIOR || IsHybridClass(classId);
+    return classId == CLASS_WARRIOR || classId == CLASS_PRIEST || IsHybridClass(classId);
 }
 
 std::string BotTokenExchangerMgr::NormalizeRole(std::string role)
@@ -557,6 +557,8 @@ bool BotTokenExchangerMgr::IsRoleAllowedForClass(uint32 classId, std::string con
     {
         case CLASS_PALADIN:
             return role == "tank" || role == "healer" || role == "melee_dps";
+        case CLASS_PRIEST:
+            return role == "healer" || role == "caster_dps";
         case CLASS_DRUID:
             return role == "tank" || role == "healer" || role == "melee_dps" || role == "caster_dps";
         case CLASS_SHAMAN:
@@ -809,12 +811,10 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
                     return overrideRole;
 
                 if (matchesAny({ "shoulderpads" }))
-                {
-                    if (preferredRole == "healer")
-                        return "caster_dps";
-                    if (preferredRole == "melee_dps" || preferredRole == "caster_dps")
-                        return preferredRole;
-                }
+                    return "caster_dps";
+
+                if (matchesAny({ "shoulderplates" }))
+                    return "melee_dps";
             }
             break;
         }
@@ -822,6 +822,19 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
         {
             if (matchesAny({ "malorne", "nordrassil" }))
             {
+                if (matchesAny({ "mantle of malorne", "wrath-mantle" }))
+                    return "caster_dps";
+
+                if (matchesAny({ "pauldrons of malorne", "light-mantle" }))
+                    return "healer";
+
+                if (matchesAny({ "shoulderguards of malorne", "feral-mantle" }))
+                {
+                    if (preferredRole == "tank")
+                        return "tank";
+                    return "melee_dps";
+                }
+
                 if (matchesAny({ "life-", "light-", "restoration", "resto", "healing" }))
                     return "healer";
 
@@ -846,6 +859,18 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
                     return "healer";
 
                 if (preferredRole == "caster_dps" && matchesAny({ "chestpiece", "handgrips", "headguard", "headpiece", "leggings", "britches", "shoulderpads", "soul-mantle", "soul-collar", "wrath-kilt", "wrath-mantle", "pauldrons", "gloves", "shroud", "vestments" }))
+                    return "caster_dps";
+            }
+            break;
+        }
+        case CLASS_PRIEST:
+        {
+            if (matchesAny({ "incarnate", "avatar", "absolution" }))
+            {
+                if (matchesAny({ "light-", "light-collar", "light-mantle", "raiment" }))
+                    return "healer";
+
+                if (matchesAny({ "soul-", "soul-collar", "soul-mantle", "regalia" }))
                     return "caster_dps";
             }
             break;
@@ -1720,12 +1745,6 @@ void BotTokenExchangerMgr::LoadResolverMappings()
 
     _resolverLoaded = true;
     LOG_INFO("bot_token_exchanger", "Loaded {} staged token resolver mappings from bot_token_exchanger_token_map", loadedCount);
-    if (!loadedCount)
-    {
-        LOG_WARN(
-            "bot_token_exchanger",
-            "No staged token resolver mappings were loaded. Run .tokenex discover tbc with DiscoveryWriteDb = 1 to populate bot_token_exchanger_token_map.");
-    }
 }
 
 std::vector<BotTokenExchangerMgr::ResolverEntry> const* BotTokenExchangerMgr::GetResolverEntries(uint32 tokenItemId)

@@ -3,7 +3,6 @@
 * Module purpose: resolve and exchange staged TBC armor/tier tokens for Playerbots.
 * Scope: server-side only, Playerbots only, WotLK support excluded for now.
 * Current state: discovery, resolver, dry-run exchange, real exchange, auto exchange, and loot-pass support are implemented for validated TBC mappings only.
-* SQL packaging: module-owned tables are created from `sql/world/base/` through the normal AzerothCore DB update flow.
 
 # Hard Rules
 
@@ -29,7 +28,6 @@
 * Auto exchange uses a delayed per-bot queue and is Playerbot-only.
 * Loot-pass uses the Playerbots callback and only forces PASS for staged tokens when the resolved reward is already owned/equipped.
 * No SQL runs in hot loot-roll logic.
-* If the mapping table exists but is empty, startup continues and discovery is required before exchange.
 
 # Production Config
 
@@ -53,7 +51,6 @@
 # Rollout Checklist
 
 * Keep `DiscoveryWriteDb = 0` unless regenerating staged mappings.
-* Fresh install depends on the module SQL base files being applied by the DB updater.
 * Confirm `.tokenex status` shows the expected gate state, mapping count, and queue size.
 * Start with `DryRun = 1` if testing changes to exchange logic.
 * Keep `AutoExchangeEnable = 0` until automatic processing is intentionally enabled.
@@ -66,7 +63,6 @@
 * Hybrid class classification can require spec/role detection and occasional family-name hints.
 * The loot-pass callback must stay no-op when caches are unavailable or resolution is ambiguous.
 * Queue state must stay bounded and cleared on logout to avoid stale processing.
-* Empty mapping tables should log a clear discovery-required warning instead of crashing.
 
 # Completed Phases
 
@@ -81,6 +77,15 @@
 
 * None for the current TBC release path.
 * WotLK support remains intentionally out of scope.
+
+# Main Server Follow-Up (2026-05-15)
+
+* Main-server logs showed repeated safe skips caused by unresolved ambiguity for Priest Incarnate (`Light-*` vs `Soul-*`) and Druid Malorne shoulders (`Shoulderguards` vs `Pauldrons`).
+* Verified fix added resolver-side role-family disambiguation for those TBC name families and enabled role filtering for Priests.
+* Additional verified Shaman fix: `29763` ambiguity on bot `Ah` came from shoulder-family role fallback (`Shoulderpads` drifting with preferred role); resolver now classifies `Shoulderpads -> caster_dps` and `Shoulderplates -> melee_dps` explicitly, while preserving `Shoulderguards -> healer`.
+* Live main-server validation completed: `Ah` logged a unique `29763 -> 29043 Cyclone Shoulderplates` auto exchange with `1 resolved, 0 skipped`.
+* Mapping table/load path remained healthy (`170` staged rows loaded); no discovery/table rewrite was required.
+* Detailed evidence is documented in `notes/main-server-beta-results.md`.
 
 # Loot Pass / Duplicate Ownership Investigation
 
