@@ -24,6 +24,16 @@ public:
     void HandlePlayerUpdate(Player* player, uint32 diff);
     void HandlePlayerLogout(Player* player);
     void DiscoverTbcTokenMappings(class ChatHandler* handler);
+    void DiscoverWotlkTokenMappings(class ChatHandler* handler);
+    void DiscoverWotlkTokenMappingsNarrow(class ChatHandler* handler);
+    void DiscoverWotlkTokenMappingsInspect(class ChatHandler* handler);
+    void DiscoverWotlkTokenMappingsStage(class ChatHandler* handler);
+    void ResolveWotlkSelectedTokenRewards(class ChatHandler* handler);
+    void ResolveWotlkBotTokenRewards(class ChatHandler* handler, std::string const& botName);
+    void ResolveWotlkBotTokenItem(class ChatHandler* handler, std::string const& botName, uint32 tokenItemId);
+    void ResolveWotlkTokenItem(class ChatHandler* handler, Player* player, uint32 tokenItemId);
+    void ExchangeWotlkSelectedTokens(class ChatHandler* handler);
+    void ExchangeWotlkBotTokens(class ChatHandler* handler, std::string const& botName);
     void ResolveSelectedTokenRewards(class ChatHandler* handler);
     void ResolveBotTokenRewards(class ChatHandler* handler, std::string const& botName);
     void ResolveTokenItem(class ChatHandler* handler, Player* player, uint32 tokenItemId);
@@ -46,6 +56,9 @@ public:
     [[nodiscard]] bool ExchangeEnable() const { return _exchangeEnable; }
     [[nodiscard]] bool AllowDebugTargetCommand() const { return _allowDebugTargetCommand; }
     [[nodiscard]] bool AutoExchangeEnable() const { return _autoExchangeEnable; }
+    [[nodiscard]] bool WotlkExchangeEnable() const { return _wotlkExchangeEnable; }
+    [[nodiscard]] bool WotlkDryRun() const { return _wotlkDryRun; }
+    [[nodiscard]] bool WotlkAutoExchangeEnable() const { return _wotlkAutoExchangeEnable; }
     [[nodiscard]] bool PlayerbotLootPassEnable() const { return _playerbotLootPassEnable; }
     [[nodiscard]] uint32 AutoExchangeDelayMs() const { return _autoExchangeDelayMs; }
     [[nodiscard]] bool AutoExchangeOnLoot() const { return _autoExchangeOnLoot; }
@@ -60,6 +73,14 @@ public:
     }
 
     [[nodiscard]] size_t GetAutoExchangeQueueSize() const { return _autoExchangeQueueByBotGuid.size(); }
+    [[nodiscard]] size_t GetLoadedWotlkResolverMappingCount() const
+    {
+        size_t count = 0;
+        for (auto const& [tokenId, entries] : _wotlkResolverEntriesByToken)
+            count += entries.size();
+        return count;
+    }
+    [[nodiscard]] size_t GetLoadedWotlkTokenKeyCount() const { return _wotlkResolverEntriesByToken.size(); }
 
 private:
     struct ResolverEntry
@@ -122,21 +143,30 @@ private:
     BotTokenExchangerMgr() = default;
 
     void EnsureDiscoveryTable();
+    void EnsureWotlkDiscoveryTables();
     void EnsurePreferenceTable();
     void UpdatePlayerbotLootPassCallback();
     bool HandlePlayerbotBeforeLootRoll(Player* bot, ItemTemplate const* itemTemplate, RollVote& rollVote);
     Player* ResolveOnlineBotByName(class ChatHandler* handler, std::string const& botName, char const* action);
     void ResolveTokenRewardsForPlayer(class ChatHandler* handler, Player* player, char const* label);
-    bool TryStageMapping(uint32 tokenItemId, uint32 rewardItemId, uint32 inventoryType, int32 allowableClass, uint32 extendedCostId, uint32 vendorEntry, std::string const& sourceTier, std::string const& sourceRaid, std::string const& notes);
+    void DiscoverTokenMappings(class ChatHandler* handler, std::string const& sourceExpansion, bool narrowVendorsOnly, bool inspectMode);
+    bool TryStageMapping(uint32 tokenItemId, uint32 rewardItemId, uint32 inventoryType, int32 allowableClass, uint32 extendedCostId, uint32 vendorEntry, std::string const& sourceExpansion, std::string const& sourceTier, std::string const& sourceRaid, std::string const& notes);
     void LoadResolverMappings();
+    void LoadWotlkResolverMappings();
     void LoadPreferenceMappings();
     void QueueAutoExchange(Player* player, uint32 tokenItemId, bool queueAllStagedTokens, bool logWhenEmpty, char const* reason);
+    void QueueWotlkAutoExchange(Player* player, uint32 tokenItemId, bool queueAllStagedTokens, bool logWhenEmpty, char const* reason);
     void ProcessAutoExchangeQueue(Player* player);
+    void ProcessWotlkAutoExchangeQueue(Player* player);
     std::vector<ResolverEntry> const* GetResolverEntries(uint32 tokenItemId);
     std::vector<ResolverEntry> const* GetResolverEntriesCached(uint32 tokenItemId) const;
+    std::vector<ResolverEntry> const* GetWotlkResolverEntries(uint32 tokenItemId);
+    std::vector<ResolverEntry> const* GetWotlkResolverEntriesCached(uint32 tokenItemId) const;
     bool BuildFilteredCandidatesFromEntries(Player* player, uint32 tokenItemId, std::vector<ResolverEntry> const& entries, std::vector<FilteredCandidate>& filtered, std::vector<std::string>& skipReasons, std::vector<std::string>& notes) const;
+    bool BuildFilteredCandidatesFromEntriesForWotlkReadOnly(Player* player, uint32 tokenItemId, std::vector<ResolverEntry> const& entries, std::vector<FilteredCandidate>& filtered, std::vector<std::string>& skipReasons, std::vector<std::string>& notes) const;
     bool BuildFilteredCandidates(Player* player, uint32 tokenItemId, std::vector<FilteredCandidate>& filtered, std::vector<std::string>& skipReasons, std::vector<std::string>& notes);
     bool BuildHybridCandidates(Player* player, std::vector<FilteredCandidate> const& input, std::vector<FilteredCandidate>& output, std::vector<std::string>& notes, std::vector<std::string>& skipReasons, RoleResolution const& roleResolution) const;
+    bool BuildWotlkHybridCandidates(Player* player, std::vector<FilteredCandidate> const& input, std::vector<FilteredCandidate>& output, std::vector<std::string>& notes, std::vector<std::string>& skipReasons, RoleResolution const& roleResolution) const;
     RoleResolution GetRoleResolution(Player* player);
     RoleResolution GetLootPassRoleResolution(Player* player) const;
     bool TryExchangeToken(Player* player, ResolverEntry const& entry, ItemTemplate const* tokenTemplate, ItemTemplate const* rewardTemplate, bool dryRun, std::string& transactionLog);
@@ -146,9 +176,12 @@ private:
     bool HasRewardItemInEquipmentOrBags(Player* player, uint32 itemId) const;
     bool HasStagedResolverEntries(uint32 tokenItemId) const;
     void ExchangePlayerTokens(Player* player, char const* label, uint32 maxPerBotPerPass = 0, class ChatHandler* handler = nullptr);
+    void ExchangeWotlkPlayerTokens(Player* player, char const* label, class ChatHandler* handler = nullptr, uint32 maxPerBotPerPass = 0);
     void DescribeRoleResolution(class ChatHandler* handler, Player* player);
     static bool IsKnownTbcVendor(uint32 vendorEntry);
+    static bool IsKnownWotlkNarrowVendor(uint32 vendorEntry);
     static bool IsTierTokenCandidate(ItemTemplate const* item);
+    static bool IsLikelyWotlkTierTokenCandidate(ItemTemplate const* item);
     static bool IsValidRewardInventoryType(uint32 inventoryType);
     static bool IsFactionPreferred(ItemTemplate const* item, uint32 teamId);
     static bool IsFactionRewardMatch(ItemTemplate const* item, uint32 teamId);
@@ -159,6 +192,7 @@ private:
     static std::string RoleFromBotRoles(uint32 classId, uint32 roles);
     static std::string ClassifyRewardRole(ItemTemplate const* item);
     static std::string ClassifyRewardRole(Player const* player, ItemTemplate const* item, RoleResolution const& roleResolution);
+    static std::string ClassifyWotlkRewardRole(Player const* player, ItemTemplate const* item, RoleResolution const& roleResolution);
     static bool RoleMatchesHint(std::string const& hint, std::string const& role);
     void LogHybridResolutionDecision(char const* phase, Player* player, uint32 tokenItemId, ItemTemplate const* tokenTemplate, std::vector<FilteredCandidate> const& input, std::vector<FilteredCandidate> const& output, RoleResolution const& roleResolution, std::vector<std::string> const& skipReasons, std::vector<std::string> const& notes) const;
     static std::string FormatResolverCandidate(ResolverEntry const& entry);
@@ -178,18 +212,25 @@ private:
     bool _allowDebugTargetCommand = false;
     bool _playerbotLootPassEnable = false;
     bool _autoExchangeEnable = false;
+    bool _wotlkExchangeEnable = false;
+    bool _wotlkDryRun = true;
+    bool _wotlkAutoExchangeEnable = false;
     uint32 _autoExchangeDelayMs = 1500;
     bool _autoExchangeOnLoot = true;
     bool _autoExchangeOnLogin = false;
     uint32 _autoExchangeMaxPerBotPerPass = 1;
     bool _discoveryTableEnsured = false;
     bool _preferenceTableEnsured = false;
+    bool _wotlkDiscoveryTablesEnsured = false;
     bool _resolverLoaded = false;
+    bool _wotlkResolverLoaded = false;
     bool _preferenceLoaded = false;
     bool _exchangeActive = false;
     std::unordered_map<uint32, std::vector<ResolverEntry>> _resolverEntriesByToken;
+    std::unordered_map<uint32, std::vector<ResolverEntry>> _wotlkResolverEntriesByToken;
     std::unordered_map<uint64, RoleResolution> _preferenceByBotGuid;
     std::unordered_map<uint64, AutoExchangeQueueEntry> _autoExchangeQueueByBotGuid;
+    std::unordered_map<uint64, AutoExchangeQueueEntry> _wotlkAutoExchangeQueueByBotGuid;
 };
 
 #define sBotTokenExchangerMgr BotTokenExchangerMgr::instance()

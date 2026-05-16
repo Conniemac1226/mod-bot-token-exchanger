@@ -1,5 +1,18 @@
 # Main Server Beta Results (2026-05-15)
 
+## Release-Stabilization Note (2026-05-16)
+
+- TBC production path remains the live baseline (`LoadedMappingCount=170`).
+- WotLK support is constrained to staged `single_token_chain` scope (`LoadedWotlkMappingCount=380`, `WotlkSingleTokenChainCount=60`).
+- WotLK unsupported structures remain disabled:
+  - `emblem_like`
+  - `token_plus_prior_armor_upgrade` (including `52025`-style marks)
+- Safe defaults for release posture:
+  - `WotlkExchangeEnable=0`
+  - `WotlkDryRun=1`
+  - `WotlkAutoExchangeEnable=0`
+  - `AllowDebugTargetCommand=0`
+
 ## Main Service Config Observed
 
 From `/home/cbur/azeroth-server/etc/modules/bot_token_exchanger.conf`:

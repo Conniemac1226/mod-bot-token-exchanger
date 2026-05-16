@@ -17,20 +17,45 @@ public:
 
     ChatCommandTable GetCommands() const override
     {
+        static ChatCommandTable discoverWotlkCommandTable =
+        {
+            { "", HandleTokenExDiscoverWotlkCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "narrow", HandleTokenExDiscoverWotlkNarrowCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "inspect", HandleTokenExDiscoverWotlkInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "stage", HandleTokenExDiscoverWotlkStageCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+
         static ChatCommandTable discoverCommandTable =
         {
-            { "tbc", HandleTokenExDiscoverTbcCommand, SEC_ADMINISTRATOR, Console::Yes }
+            { "tbc", HandleTokenExDiscoverTbcCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "wotlk", discoverWotlkCommandTable }
+        };
+
+        static ChatCommandTable resolveWotlkCommandTable =
+        {
+            { "selected", HandleTokenExResolveWotlkSelectedCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "item", HandleTokenExResolveWotlkItemCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "bot", HandleTokenExResolveWotlkBotCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "botitem", HandleTokenExResolveWotlkBotItemCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
 
         static ChatCommandTable resolveCommandTable =
         {
+            { "wotlk", resolveWotlkCommandTable },
             { "selected", HandleTokenExResolveSelectedCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "item", HandleTokenExResolveItemCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "bot", HandleTokenExResolveBotCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
 
+        static ChatCommandTable exchangeWotlkCommandTable =
+        {
+            { "selected", HandleTokenExExchangeWotlkSelectedCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "bot", HandleTokenExExchangeWotlkBotCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+
         static ChatCommandTable exchangeCommandTable =
         {
+            { "wotlk", exchangeWotlkCommandTable },
             { "selected", HandleTokenExExchangeSelectedCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "group", HandleTokenExExchangeGroupCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "bot", HandleTokenExExchangeBotCommand, SEC_ADMINISTRATOR, Console::Yes }
@@ -80,6 +105,30 @@ public:
         return true;
     }
 
+    static bool HandleTokenExDiscoverWotlkCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.DiscoverWotlkTokenMappings(handler);
+        return true;
+    }
+
+    static bool HandleTokenExDiscoverWotlkNarrowCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.DiscoverWotlkTokenMappingsNarrow(handler);
+        return true;
+    }
+
+    static bool HandleTokenExDiscoverWotlkInspectCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.DiscoverWotlkTokenMappingsInspect(handler);
+        return true;
+    }
+
+    static bool HandleTokenExDiscoverWotlkStageCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.DiscoverWotlkTokenMappingsStage(handler);
+        return true;
+    }
+
     static bool HandleTokenExStatusCommand(ChatHandler* handler)
     {
         sBotTokenExchangerMgr.ShowStatus(handler);
@@ -89,6 +138,12 @@ public:
     static bool HandleTokenExResolveSelectedCommand(ChatHandler* handler)
     {
         sBotTokenExchangerMgr.ResolveSelectedTokenRewards(handler);
+        return true;
+    }
+
+    static bool HandleTokenExResolveWotlkSelectedCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ResolveWotlkSelectedTokenRewards(handler);
         return true;
     }
 
@@ -139,6 +194,120 @@ public:
         return true;
     }
 
+    static bool HandleTokenExResolveWotlkItemCommand(ChatHandler* handler, char const* args)
+    {
+        if (!handler)
+            return false;
+
+        std::string_view input = args ? std::string_view(args) : std::string_view();
+        size_t first = input.find_first_not_of(" \t");
+        if (first == std::string_view::npos)
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk item <tokenItemId>");
+            return false;
+        }
+
+        input.remove_prefix(first);
+        if (input.empty())
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk item <tokenItemId>");
+            return false;
+        }
+
+        uint32 tokenItemId = 0;
+        auto const* begin = input.data();
+        auto const* end = input.data() + input.size();
+        auto result = std::from_chars(begin, end, tokenItemId);
+        if (result.ec != std::errc() || result.ptr == begin)
+        {
+            handler->SendSysMessage("Invalid token item id.");
+            return false;
+        }
+
+        Player* player = handler->getSelectedPlayer();
+        if (!player)
+        {
+            handler->SendSysMessage("Select a Playerbot first.");
+            return false;
+        }
+
+        if (!player->GetSession() || !player->GetSession()->IsBot())
+        {
+            handler->SendSysMessage("Selected player is not a Playerbot.");
+            return false;
+        }
+
+        sBotTokenExchangerMgr.ResolveWotlkTokenItem(handler, player, tokenItemId);
+        return true;
+    }
+
+    static bool HandleTokenExResolveWotlkBotCommand(ChatHandler* handler, char const* args)
+    {
+        if (!handler)
+            return false;
+
+        std::string_view input = args ? std::string_view(args) : std::string_view();
+        size_t first = input.find_first_not_of(" \t");
+        if (first == std::string_view::npos)
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk bot <botName>");
+            return false;
+        }
+
+        input.remove_prefix(first);
+        if (input.empty())
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk bot <botName>");
+            return false;
+        }
+
+        sBotTokenExchangerMgr.ResolveWotlkBotTokenRewards(handler, std::string(input));
+        return true;
+    }
+
+    static bool HandleTokenExResolveWotlkBotItemCommand(ChatHandler* handler, char const* args)
+    {
+        if (!handler)
+            return false;
+
+        std::string_view input = args ? std::string_view(args) : std::string_view();
+        size_t first = input.find_first_not_of(" \t");
+        if (first == std::string_view::npos)
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk botitem <botName> <tokenItemId>");
+            return false;
+        }
+        input.remove_prefix(first);
+
+        size_t split = input.find_first_of(" \t");
+        if (split == std::string_view::npos)
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk botitem <botName> <tokenItemId>");
+            return false;
+        }
+
+        std::string botName(input.substr(0, split));
+        std::string_view rest = input.substr(split);
+        size_t second = rest.find_first_not_of(" \t");
+        if (second == std::string_view::npos)
+        {
+            handler->SendSysMessage("Usage: .tokenex resolve wotlk botitem <botName> <tokenItemId>");
+            return false;
+        }
+        rest.remove_prefix(second);
+
+        uint32 tokenItemId = 0;
+        auto result = std::from_chars(rest.data(), rest.data() + rest.size(), tokenItemId);
+        if (result.ec != std::errc() || result.ptr == rest.data())
+        {
+            handler->SendSysMessage("Invalid token item id.");
+            return false;
+        }
+
+        sBotTokenExchangerMgr.ResolveWotlkBotTokenItem(handler, botName, tokenItemId);
+        return true;
+    }
+
     static bool HandleTokenExResolveBotCommand(ChatHandler* handler, char const* args)
     {
         if (!handler)
@@ -169,6 +338,12 @@ public:
         return true;
     }
 
+    static bool HandleTokenExExchangeWotlkSelectedCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ExchangeWotlkSelectedTokens(handler);
+        return true;
+    }
+
     static bool HandleTokenExExchangeGroupCommand(ChatHandler* handler)
     {
         sBotTokenExchangerMgr.ExchangeGroupTokens(handler);
@@ -196,6 +371,30 @@ public:
         }
 
         sBotTokenExchangerMgr.ExchangeBotTokens(handler, std::string(input));
+        return true;
+    }
+
+    static bool HandleTokenExExchangeWotlkBotCommand(ChatHandler* handler, char const* args)
+    {
+        if (!handler)
+            return false;
+
+        std::string_view input = args ? std::string_view(args) : std::string_view();
+        size_t first = input.find_first_not_of(" \t");
+        if (first == std::string_view::npos)
+        {
+            handler->SendSysMessage("Usage: .tokenex exchange wotlk bot <botName>");
+            return false;
+        }
+
+        input.remove_prefix(first);
+        if (input.empty())
+        {
+            handler->SendSysMessage("Usage: .tokenex exchange wotlk bot <botName>");
+            return false;
+        }
+
+        sBotTokenExchangerMgr.ExchangeWotlkBotTokens(handler, std::string(input));
         return true;
     }
 

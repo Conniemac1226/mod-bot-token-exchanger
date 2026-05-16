@@ -6,7 +6,10 @@ Server-side module for Playerbots that resolves staged TBC armor/tier tokens int
 
 - TBC staged mappings only
 - Playerbots only
-- No WotLK support yet
+- WotLK support is limited to staged `single_token_chain` scope
+- WotLK `emblem_like` and upgrade-chain (`token_plus_prior_armor_upgrade`, including `52025`-style marks) are intentionally excluded
+- WotLK auto exchange remains disabled by default
+- No WotLK loot-pass integration yet
 - No architecture changes required for normal use
 
 ## Main-Service Config
@@ -41,6 +44,22 @@ If anything looks unsafe, set:
 - `BotTokenExchanger.AllowDebugTargetCommand = 0`
 
 Restart `worldserver` if the process is already running with unsafe config loaded.
+
+## WotLK Safety Gates
+
+Use these safe defaults unless actively running controlled WotLK tests:
+
+- `BotTokenExchanger.WotlkExchangeEnable = 0`
+- `BotTokenExchanger.WotlkDryRun = 1`
+- `BotTokenExchanger.WotlkAutoExchangeEnable = 0`
+- `BotTokenExchanger.AllowDebugTargetCommand = 0`
+
+Current WotLK exchange safety behavior (single_token_chain only):
+
+- requires exactly one staged resolver candidate after class/faction/role filtering
+- duplicate ownership prevention: skips if resolved reward is already equipped or in bags
+- transaction ordering and rollback are handled through shared exchange helper
+- excluded structures are not loaded into WotLK resolver scope and cannot be exchanged by WotLK commands
 
 ## Discovery
 

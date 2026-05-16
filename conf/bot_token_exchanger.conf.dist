@@ -40,6 +40,19 @@ BotTokenExchanger.AllowDebugTargetCommand = 0
 # Default: 1
 BotTokenExchanger.AutoExchangeEnable = 1
 
+# Enable WOTLK exchange command path (single-token-chain scope only).
+# Default: 0
+BotTokenExchanger.WotlkExchangeEnable = 0
+
+# Keep WOTLK exchange in dry-run mode (no inventory mutation).
+# Default: 1
+BotTokenExchanger.WotlkDryRun = 1
+
+# Enable WOTLK auto exchange queue for staged single-token-chain scope only.
+# Unsupported WOTLK structures (emblem_like, upgrade-chain) remain excluded.
+# Default: 0
+BotTokenExchanger.WotlkAutoExchangeEnable = 0
+
 # Delay before queued auto exchange is processed.
 # Default: 1500
 BotTokenExchanger.AutoExchangeDelayMs = 1500
