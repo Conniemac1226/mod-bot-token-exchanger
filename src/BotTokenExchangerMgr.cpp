@@ -974,11 +974,11 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
         {
             if (matchesAny({ "cyclone", "cataclysm" }))
             {
-                if (auto overrideRole = classAwareOverride({ "hauberk", "grips", "faceguard", "war-kilt" }, "melee_dps"); !overrideRole.empty())
+                if (auto overrideRole = classAwareOverride({ "hauberk", "grips", "helm", "war-kilt" }, "melee_dps"); !overrideRole.empty())
                     return overrideRole;
-                if (auto overrideRole = classAwareOverride({ "chestguard", "gloves", "headdress", "kilt", "leggings", "shoulderguards" }, "healer"); !overrideRole.empty())
+                if (auto overrideRole = classAwareOverride({ "chestguard", "gloves", "headdress", "headguard", "kilt", "leggings", "shoulderguards" }, "healer"); !overrideRole.empty())
                     return overrideRole;
-                if (auto overrideRole = classAwareOverride({ "chestpiece", "handguards", "helm", "headguard", "legguards", "leggings" }, "caster_dps"); !overrideRole.empty())
+                if (auto overrideRole = classAwareOverride({ "chestpiece", "handguards", "faceguard", "headpiece", "legguards", "leggings" }, "caster_dps"); !overrideRole.empty())
                     return overrideRole;
 
                 if (matchesAny({ "shoulderpads" }))
@@ -1026,10 +1026,10 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
                 if (preferredRole == "melee_dps" && matchesAny({ "breastplate", "gauntlets", "faceguard", "war-kilt", "shoulderplates", "greaves", "feral-kilt", "feral-mantle" }))
                     return "melee_dps";
 
-                if (preferredRole == "healer" && matchesAny({ "chestpiece", "chestguard", "gloves", "headdress", "hood", "kilt", "leggings", "shoulderpads", "light-mantle", "light-collar", "pauldrons", "shroud", "vestments" }))
+                if (preferredRole == "healer" && matchesAny({ "chestpiece", "chestguard", "gloves", "headguard", "headdress", "hood", "kilt", "leggings", "shoulderpads", "light-mantle", "light-collar", "pauldrons", "shroud", "vestments" }))
                     return "healer";
 
-                if (preferredRole == "caster_dps" && matchesAny({ "chestpiece", "handgrips", "headguard", "headpiece", "leggings", "britches", "shoulderpads", "soul-mantle", "soul-collar", "wrath-kilt", "wrath-mantle", "pauldrons", "gloves", "shroud", "vestments" }))
+                if (preferredRole == "caster_dps" && matchesAny({ "chestpiece", "handgrips", "headpiece", "leggings", "britches", "shoulderpads", "soul-mantle", "soul-collar", "wrath-kilt", "wrath-mantle", "pauldrons", "gloves", "shroud", "vestments" }))
                     return "caster_dps";
             }
             break;

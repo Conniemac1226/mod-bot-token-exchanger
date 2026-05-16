@@ -171,3 +171,92 @@ This preserves existing working behavior for:
   - `BotTokenExchanger exchanged token 29763 (Pauldrons of the Fallen Champion) -> reward 29043 (Cyclone Shoulderplates) via vendor 20616 extcost 1212`
   - `BotTokenExchanger auto bot Ah exchange complete: 1 resolved, 0 skipped, mode real exchange.`
 - No new `29763` ambiguity line was emitted for `Ah` after this fix.
+
+## Shaman Helm Token Follow-Up (2026-05-15)
+
+### Scope and Log Findings
+
+- Requested issue: unresolved Shaman helm-token exchange on main server after the shoulder fix.
+- Current active logs only showed successful Shaman helm exchange:
+  - `BotTokenExchanger exchanged token 29760 (Helm of the Fallen Champion) -> reward 29028 (Cyclone Headdress) ...`
+- No current `helm/head` Shaman ambiguity line remained in active `logs/Server.log` after this pass.
+- `bin/Server.log` did not contain BotTokenExchanger evidence for this timeframe.
+
+### DB Evidence for Shaman Helm Families
+
+Shaman helm candidates in staged mapping table:
+
+- `29760 Helm of the Fallen Champion` -> `29028 Cyclone Headdress`, `29035 Cyclone Faceguard`, `29040 Cyclone Helm`
+- `30242 Helm of the Vanquished Champion` -> `30166 Cataclysm Headguard`, `30171 Cataclysm Headpiece`, `30190 Cataclysm Helm`
+
+Item profile and family evidence used:
+
+- `29040 Cyclone Helm`: melee/AP-oriented stat profile (Enhancement family)
+- `29035 Cyclone Faceguard`: caster-oriented profile (Elemental family)
+- `29028 Cyclone Headdress`: healer-oriented profile (Restoration family)
+- `30190 Cataclysm Helm`: melee/AP-oriented profile (Enhancement family)
+- `30171 Cataclysm Headpiece`: Elemental family (`Cataclysm Regalia`)
+- `30166 Cataclysm Headguard`: Restoration family (`Cataclysm Raiment`)
+
+### Root Cause
+
+Shaman class-aware override had helm-family role mapping drift:
+
+- `helm` was being forced to `caster_dps`
+- `faceguard` was being forced to `melee_dps`
+- `headguard` was being forced to `caster_dps`
+
+This conflicts with TBC Shaman tier-family naming and can produce unresolved/incorrect helm resolution under some detected roles.
+
+### Fix Applied (Resolver-only)
+
+For Shaman `cyclone/cataclysm` families:
+
+- `helm` -> `melee_dps`
+- `faceguard` -> `caster_dps`
+- `headguard` -> `healer`
+- `headpiece` -> `caster_dps`
+- `headdress` remains `healer`
+
+No token IDs were guessed; no safety skip was removed; no architecture changes were made.
+
+### Validation
+
+- Build: passed.
+- Install: passed.
+- worldserver restart: passed (`active`).
+- Post-restart logs currently show normal config load and no new Shaman helm ambiguity lines in active window.
+- Shoulder fix path remains unchanged in code and no new shoulder regressions were emitted in current active log window.
+
+## Druid Nordrassil Helm Audit Follow-Up (2026-05-15)
+
+### Evidence
+
+- Full staged mapping audit found T5 Druid helm token family:
+  - `30243 Helm of the Vanquished Defender` ->
+    - `30219 Nordrassil Headguard`
+    - `30228 Nordrassil Headdress`
+    - `30233 Nordrassil Headpiece`
+- Current resolver class-aware Druid hints had `headguard` in caster path and not in healer path.
+- External set-family reference confirms `Nordrassil Headguard` belongs to restoration set (Nordrassil Raiment).
+
+### Root Cause
+
+Class-aware Druid helm hint drift for Nordrassil:
+
+- `Headguard` was treated as caster when it should be healer-family.
+
+### Fix Applied (Minimal)
+
+In Druid class-aware hint rules:
+
+- Added `headguard` to healer hint list.
+- Removed `headguard` from caster hint list.
+
+No other class/family logic changed in this step.
+
+### Validation
+
+- Build/install: passed.
+- worldserver restart: passed (`active`).
+- Immediate post-restart log window showed no new BotTokenExchanger ambiguity/skip lines.
