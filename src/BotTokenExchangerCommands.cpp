@@ -39,6 +39,31 @@ public:
             { "botitem", HandleTokenExResolveWotlkBotItemCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
 
+        static ChatCommandTable validateWotlkSingleCommandTable =
+        {
+            { "", HandleTokenExValidateWotlkSingleCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "verbose", HandleTokenExValidateWotlkSingleVerboseCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "unresolved", HandleTokenExValidateWotlkSingleUnresolvedCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+
+        static ChatCommandTable validateWotlkCommandTable =
+        {
+            { "single", validateWotlkSingleCommandTable }
+        };
+
+        static ChatCommandTable validateTbcCommandTable =
+        {
+            { "", HandleTokenExValidateTbcCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "verbose", HandleTokenExValidateTbcVerboseCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "unresolved", HandleTokenExValidateTbcUnresolvedCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+
+        static ChatCommandTable validateCommandTable =
+        {
+            { "tbc", validateTbcCommandTable },
+            { "wotlk", validateWotlkCommandTable }
+        };
+
         static ChatCommandTable resolveCommandTable =
         {
             { "wotlk", resolveWotlkCommandTable },
@@ -87,6 +112,7 @@ public:
             { "discover", discoverCommandTable },
             { "resolve", resolveCommandTable },
             { "exchange", exchangeCommandTable },
+            { "validate", validateCommandTable },
             { "role", roleCommandTable },
             { "prefer", preferCommandTable }
         };
@@ -305,6 +331,42 @@ public:
         }
 
         sBotTokenExchangerMgr.ResolveWotlkBotTokenItem(handler, botName, tokenItemId);
+        return true;
+    }
+
+    static bool HandleTokenExValidateWotlkSingleCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ValidateWotlkSingleTokenChain(handler, false);
+        return true;
+    }
+
+    static bool HandleTokenExValidateWotlkSingleVerboseCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ValidateWotlkSingleTokenChain(handler, true);
+        return true;
+    }
+
+    static bool HandleTokenExValidateWotlkSingleUnresolvedCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ValidateWotlkSingleTokenChainUnresolved(handler);
+        return true;
+    }
+
+    static bool HandleTokenExValidateTbcCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ValidateTbcTokenChain(handler, false);
+        return true;
+    }
+
+    static bool HandleTokenExValidateTbcVerboseCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ValidateTbcTokenChain(handler, true);
+        return true;
+    }
+
+    static bool HandleTokenExValidateTbcUnresolvedCommand(ChatHandler* handler)
+    {
+        sBotTokenExchangerMgr.ValidateTbcTokenChainUnresolved(handler);
         return true;
     }
 

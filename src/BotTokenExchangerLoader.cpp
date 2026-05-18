@@ -1,8 +1,10 @@
 #include "BotTokenExchangerMgr.h"
 
 #include "DatabaseScript.h"
+#include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "ScriptDefines/WorldScript.h"
 
 void AddSC_bot_token_exchanger_commandscript();
 
@@ -51,9 +53,27 @@ public:
     }
 };
 
+class BotTokenExchangerWorldScript : public WorldScript
+{
+public:
+    BotTokenExchangerWorldScript() : WorldScript("BotTokenExchangerWorldScript") { }
+
+    void OnStartup() override
+    {
+        LOG_INFO("server", "BotTokenExchangerWorldScript::OnStartup invoked");
+        sBotTokenExchangerMgr.PreloadRuntimeCaches();
+    }
+
+    void OnUpdate(uint32 /*diff*/) override
+    {
+        sBotTokenExchangerMgr.PreloadRuntimeCaches();
+    }
+};
+
 void Addmod_bot_token_exchangerScripts()
 {
     new BotTokenExchangerPlayerScript();
     new BotTokenExchangerDatabaseScript();
+    new BotTokenExchangerWorldScript();
     AddSC_bot_token_exchanger_commandscript();
 }

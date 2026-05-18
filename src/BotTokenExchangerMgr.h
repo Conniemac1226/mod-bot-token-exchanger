@@ -32,6 +32,10 @@ public:
     void ResolveWotlkBotTokenRewards(class ChatHandler* handler, std::string const& botName);
     void ResolveWotlkBotTokenItem(class ChatHandler* handler, std::string const& botName, uint32 tokenItemId);
     void ResolveWotlkTokenItem(class ChatHandler* handler, Player* player, uint32 tokenItemId);
+    void ValidateWotlkSingleTokenChain(class ChatHandler* handler, bool verbose);
+    void ValidateWotlkSingleTokenChainUnresolved(class ChatHandler* handler);
+    void ValidateTbcTokenChain(class ChatHandler* handler, bool verbose);
+    void ValidateTbcTokenChainUnresolved(class ChatHandler* handler);
     void ExchangeWotlkSelectedTokens(class ChatHandler* handler);
     void ExchangeWotlkBotTokens(class ChatHandler* handler, std::string const& botName);
     void ResolveSelectedTokenRewards(class ChatHandler* handler);
@@ -51,6 +55,7 @@ public:
     [[nodiscard]] uint32 GetExchangeDelayMs() const { return _exchangeDelayMs; }
     [[nodiscard]] bool AnnounceToBotOwner() const { return _announceToBotOwner; }
     [[nodiscard]] bool DiscoveryWriteDb() const { return _discoveryWriteDb; }
+    [[nodiscard]] bool AutoPopulateMappings() const { return _autoPopulateMappings; }
     [[nodiscard]] bool ResolveOnly() const { return _resolveOnly; }
     [[nodiscard]] bool DryRun() const { return _dryRun; }
     [[nodiscard]] bool ExchangeEnable() const { return _exchangeEnable; }
@@ -145,6 +150,7 @@ private:
     void EnsureDiscoveryTable();
     void EnsureWotlkDiscoveryTables();
     void EnsurePreferenceTable();
+    void AutoPopulateMappingsIfEmpty();
     void UpdatePlayerbotLootPassCallback();
     bool HandlePlayerbotBeforeLootRoll(Player* bot, ItemTemplate const* itemTemplate, RollVote& rollVote);
     Player* ResolveOnlineBotByName(class ChatHandler* handler, std::string const& botName, char const* action);
@@ -199,6 +205,15 @@ private:
     static std::string EscapeSql(std::string value);
     static std::string SqlQuote(std::string value);
     static std::string SqlNullable(std::string const& value);
+    void MaybeLogWotlkUnresolvedTelemetry(
+        Player* player,
+        uint32 tokenItemId,
+        ItemTemplate const* tokenTemplate,
+        std::vector<ResolverEntry> const& entries,
+        std::vector<FilteredCandidate> const& filteredCandidates,
+        RoleResolution const* roleResolution,
+        std::string const& failReason,
+        char const* outcome);
 
     bool _enabled = true;
     bool _debug = false;
@@ -206,6 +221,7 @@ private:
     uint32 _exchangeDelayMs = 1000;
     bool _announceToBotOwner = false;
     bool _discoveryWriteDb = false;
+    bool _autoPopulateMappings = false;
     bool _resolveOnly = true;
     bool _dryRun = true;
     bool _exchangeEnable = false;
@@ -215,6 +231,7 @@ private:
     bool _wotlkExchangeEnable = false;
     bool _wotlkDryRun = true;
     bool _wotlkAutoExchangeEnable = false;
+    bool _wotlkTelemetryEnable = true;
     uint32 _autoExchangeDelayMs = 1500;
     bool _autoExchangeOnLoot = true;
     bool _autoExchangeOnLogin = false;
@@ -224,6 +241,7 @@ private:
     bool _wotlkDiscoveryTablesEnsured = false;
     bool _resolverLoaded = false;
     bool _wotlkResolverLoaded = false;
+    bool _runtimePreloaded = false;
     bool _preferenceLoaded = false;
     bool _exchangeActive = false;
     std::unordered_map<uint32, std::vector<ResolverEntry>> _resolverEntriesByToken;
@@ -231,6 +249,7 @@ private:
     std::unordered_map<uint64, RoleResolution> _preferenceByBotGuid;
     std::unordered_map<uint64, AutoExchangeQueueEntry> _autoExchangeQueueByBotGuid;
     std::unordered_map<uint64, AutoExchangeQueueEntry> _wotlkAutoExchangeQueueByBotGuid;
+    std::unordered_map<std::string, uint64> _wotlkTelemetryLastLogMsByKey;
 };
 
 #define sBotTokenExchangerMgr BotTokenExchangerMgr::instance()

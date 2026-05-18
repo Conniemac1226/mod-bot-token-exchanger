@@ -16,6 +16,10 @@ BotTokenExchanger.OnlyPlayerbots = 1
 # Default: 0
 BotTokenExchanger.DiscoveryWriteDb = 0
 
+# Auto-populate staged mappings once at startup when module tables are empty.
+# Default: 1
+BotTokenExchanger.AutoPopulateMappings = 1
+
 # Resolve staged token rewards without exchanging items.
 # Default: 1
 BotTokenExchanger.ResolveOnly = 1
@@ -52,6 +56,12 @@ BotTokenExchanger.WotlkDryRun = 1
 # Unsupported WOTLK structures (emblem_like, upgrade-chain) remain excluded.
 # Default: 0
 BotTokenExchanger.WotlkAutoExchangeEnable = 0
+
+# Emit throttled unresolved WOTLK single-token-chain telemetry logs.
+# Prefix: WOTLK_UNRESOLVED:
+# Logs once per token/family/class/spec/role/outcome key per cooldown window.
+# Default: 1
+BotTokenExchanger.WotlkTelemetryEnable = 1
 
 # Delay before queued auto exchange is processed.
 # Default: 1500

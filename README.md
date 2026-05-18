@@ -20,6 +20,7 @@ Use these defaults for live service:
 - `BotTokenExchanger.Debug = 0`
 - `BotTokenExchanger.OnlyPlayerbots = 1`
 - `BotTokenExchanger.DiscoveryWriteDb = 0`
+- `BotTokenExchanger.AutoPopulateMappings = 1` (first-startup staging bootstrap)
 - `BotTokenExchanger.ResolveOnly = 1`
 - `BotTokenExchanger.DryRun = 0`
 - `BotTokenExchanger.ExchangeEnable = 1`
@@ -53,6 +54,7 @@ Use these safe defaults unless actively running controlled WotLK tests:
 - `BotTokenExchanger.WotlkDryRun = 1`
 - `BotTokenExchanger.WotlkAutoExchangeEnable = 0`
 - `BotTokenExchanger.AllowDebugTargetCommand = 0`
+- `BotTokenExchanger.WotlkTelemetryEnable = 1` (throttled unresolved telemetry for beta)
 
 Current WotLK exchange safety behavior (single_token_chain only):
 
@@ -66,6 +68,13 @@ Current WotLK exchange safety behavior (single_token_chain only):
 Use `.tokenex discover tbc` to regenerate staged mappings from runtime DBC data and known TBC vendors.
 
 Keep `BotTokenExchanger.DiscoveryWriteDb = 0` unless you are intentionally refreshing the mapping table.
+On first startup with empty module tables, `BotTokenExchanger.AutoPopulateMappings = 1` auto-stages:
+
+- TBC staged map (`bot_token_exchanger_token_map`)
+- WotLK staged tables (`bot_token_exchanger_wotlk_map`, `bot_token_exchanger_wotlk_cost`)
+
+This runs once when counts are empty and does not overwrite existing staged/custom rows.
+Manual rediscovery remains explicit (`DiscoveryWriteDb=1` + discovery command).
 
 ### First Run Mapping Population
 
@@ -86,6 +95,35 @@ Use `.tokenex status` to verify:
 - active safety gates
 - loaded mapping count
 - queue size
+
+## Binary / Runtime Sanity (Required Before Validation)
+
+Validation output is not trustworthy unless the running `worldserver` matches the current build and only one process is active.
+
+Use:
+
+```bash
+cd /home/cbur/azerothcore-wotlk
+scripts/verify-live-binary.sh
+```
+
+The check fails if:
+
+- more than one `worldserver` process is running
+- build and installed `worldserver` SHA256 hashes differ
+
+For clean validation runs:
+
+```bash
+cd /home/cbur/azerothcore-wotlk
+pkill -f '/home/cbur/azeroth-server/bin/worldserver' || true
+cmake --build build --target worldserver -j"$(nproc)"
+cmake --install build
+scripts/verify-live-binary.sh
+/home/cbur/azeroth-server/bin/worldserver
+```
+
+Run `.tokenex validate ...` only after the sanity check passes.
 
 ## Loot Pass
 

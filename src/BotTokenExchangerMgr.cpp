@@ -25,6 +25,7 @@
 #include <initializer_list>
 #include <limits>
 #include <sstream>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -151,6 +152,38 @@ namespace
         }
     }
 
+    char const* ClassLabel(uint8 classId)
+    {
+        switch (classId)
+        {
+            case CLASS_WARRIOR: return "Warrior";
+            case CLASS_PALADIN: return "Paladin";
+            case CLASS_HUNTER: return "Hunter";
+            case CLASS_ROGUE: return "Rogue";
+            case CLASS_PRIEST: return "Priest";
+            case CLASS_DEATH_KNIGHT: return "DeathKnight";
+            case CLASS_SHAMAN: return "Shaman";
+            case CLASS_MAGE: return "Mage";
+            case CLASS_WARLOCK: return "Warlock";
+            case CLASS_DRUID: return "Druid";
+            default: return "Unknown";
+        }
+    }
+
+    char const* InventoryTypeLabel(uint32 inventoryType)
+    {
+        switch (inventoryType)
+        {
+            case INVTYPE_HEAD: return "Head";
+            case INVTYPE_SHOULDERS: return "Shoulder";
+            case INVTYPE_CHEST: return "Chest";
+            case INVTYPE_ROBE: return "Chest";
+            case INVTYPE_LEGS: return "Legs";
+            case INVTYPE_HANDS: return "Hands";
+            default: return "Other";
+        }
+    }
+
 }
 
 BotTokenExchangerMgr& BotTokenExchangerMgr::instance()
@@ -167,6 +200,7 @@ void BotTokenExchangerMgr::LoadConfig()
     _exchangeDelayMs = sConfigMgr->GetOption<uint32>("BotTokenExchanger.ExchangeDelayMs", 1000);
     _announceToBotOwner = sConfigMgr->GetOption<bool>("BotTokenExchanger.AnnounceToBotOwner", false);
     _discoveryWriteDb = sConfigMgr->GetOption<bool>("BotTokenExchanger.DiscoveryWriteDb", false);
+    _autoPopulateMappings = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoPopulateMappings", true);
     _resolveOnly = sConfigMgr->GetOption<bool>("BotTokenExchanger.ResolveOnly", true);
     _dryRun = sConfigMgr->GetOption<bool>("BotTokenExchanger.DryRun", true);
     _exchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.ExchangeEnable", false);
@@ -176,6 +210,7 @@ void BotTokenExchangerMgr::LoadConfig()
     _wotlkExchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkExchangeEnable", false);
     _wotlkDryRun = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkDryRun", true);
     _wotlkAutoExchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkAutoExchangeEnable", false);
+    _wotlkTelemetryEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkTelemetryEnable", true);
     _autoExchangeDelayMs = sConfigMgr->GetOption<uint32>("BotTokenExchanger.AutoExchangeDelayMs", 1500);
     _autoExchangeOnLoot = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeOnLoot", true);
     _autoExchangeOnLogin = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeOnLogin", false);
@@ -183,11 +218,12 @@ void BotTokenExchangerMgr::LoadConfig()
 
     LOG_INFO(
         "server",
-        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
+        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
         _enabled ? 1 : 0,
         _debug ? 1 : 0,
         _onlyPlayerbots ? 1 : 0,
         _discoveryWriteDb ? 1 : 0,
+        _autoPopulateMappings ? 1 : 0,
         _resolveOnly ? 1 : 0,
         _dryRun ? 1 : 0,
         _exchangeEnable ? 1 : 0,
@@ -197,6 +233,7 @@ void BotTokenExchangerMgr::LoadConfig()
         _wotlkExchangeEnable ? 1 : 0,
         _wotlkDryRun ? 1 : 0,
         _wotlkAutoExchangeEnable ? 1 : 0,
+        _wotlkTelemetryEnable ? 1 : 0,
         _autoExchangeDelayMs,
         _autoExchangeOnLoot ? 1 : 0,
         _autoExchangeOnLogin ? 1 : 0,
@@ -210,9 +247,21 @@ void BotTokenExchangerMgr::PreloadRuntimeCaches()
     if (!_enabled)
         return;
 
+    if (_runtimePreloaded)
+        return;
+
+    // Defer preload until world/DBC item templates are available.
+    // A known TBC token id is used as a readiness sentinel.
+    if (!sObjectMgr || !sObjectMgr->GetItemTemplate(29753))
+        return;
+
+    LOG_INFO("bot_token_exchanger", "PreloadRuntimeCaches start: AutoPopulateMappings={} DiscoveryWriteDb={}", _autoPopulateMappings ? 1 : 0, _discoveryWriteDb ? 1 : 0);
+    AutoPopulateMappingsIfEmpty();
     LoadResolverMappings();
     LoadWotlkResolverMappings();
     LoadPreferenceMappings();
+    _runtimePreloaded = true;
+    LOG_INFO("bot_token_exchanger", "PreloadRuntimeCaches complete: loaded_tbc={} loaded_wotlk={}", GetLoadedResolverMappingCount(), GetLoadedWotlkResolverMappingCount());
 }
 
 void BotTokenExchangerMgr::UpdatePlayerbotLootPassCallback()
@@ -271,12 +320,16 @@ void BotTokenExchangerMgr::HandlePlayerStoreNewItem(Player* player, Item* item, 
             QueueWotlkAutoExchange(player, proto->ItemId, false, false, "loot");
         }
     }
+
 }
 
 void BotTokenExchangerMgr::HandlePlayerLogin(Player* player)
 {
     if (!_enabled || !player || !player->GetSession())
         return;
+
+    if (!_runtimePreloaded)
+        PreloadRuntimeCaches();
 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
         return;
@@ -701,7 +754,7 @@ bool BotTokenExchangerMgr::IsHybridClass(uint32 classId)
 
 bool BotTokenExchangerMgr::UsesRoleFiltering(uint32 classId)
 {
-    return classId == CLASS_WARRIOR || classId == CLASS_PRIEST || IsHybridClass(classId);
+    return classId == CLASS_WARRIOR || classId == CLASS_PRIEST || classId == CLASS_DEATH_KNIGHT || IsHybridClass(classId);
 }
 
 std::string BotTokenExchangerMgr::NormalizeRole(std::string role)
@@ -968,17 +1021,59 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
                 if (auto overrideRole = classAwareOverride({ "breastplate", "gauntlets", "battle-helm", "greaves", "shoulderplates" }, "melee_dps"); !overrideRole.empty())
                     return overrideRole;
             }
+
+            if (matchesAny({ "destroyer" }))
+            {
+                if (auto overrideRole = classAwareOverride({ "chestguard", "handguards", "greathelm", "legguards", "shoulderguards" }, "tank"); !overrideRole.empty())
+                    return overrideRole;
+                if (auto overrideRole = classAwareOverride({ "breastplate", "gauntlets", "battle-helm", "greaves", "shoulderblades" }, "melee_dps"); !overrideRole.empty())
+                    return overrideRole;
+            }
             break;
         }
         case CLASS_SHAMAN:
         {
             if (matchesAny({ "cyclone", "cataclysm" }))
             {
-                if (auto overrideRole = classAwareOverride({ "hauberk", "grips", "helm", "war-kilt" }, "melee_dps"); !overrideRole.empty())
+                // Family-specific TBC shaman splits from local item_template stats.
+                // Cyclone:
+                // - melee: helm / shoulderplates / war-kilt
+                // - healer: headdress / kilt / shoulderguards
+                // - caster: faceguard / legguards / shoulderpads
+                if (matchesAny({ "cyclone " }))
+                {
+                    if (auto overrideRole = classAwareOverride({ "cyclone helm", "cyclone shoulderplates", "cyclone war-kilt" }, "melee_dps"); !overrideRole.empty())
+                        return overrideRole;
+                    if (auto overrideRole = classAwareOverride({ "cyclone headdress", "cyclone kilt", "cyclone shoulderguards" }, "healer"); !overrideRole.empty())
+                        return overrideRole;
+                    if (auto overrideRole = classAwareOverride({ "cyclone faceguard", "cyclone legguards", "cyclone shoulderpads" }, "caster_dps"); !overrideRole.empty())
+                        return overrideRole;
+                }
+
+                // Cataclysm:
+                // - melee: helm / legplates / shoulderplates
+                // - healer: headguard / legguards / shoulderguards
+                // - caster: headpiece / leggings / shoulderpads
+                if (matchesAny({ "cataclysm " }))
+                {
+                    if (auto overrideRole = classAwareOverride({ "cataclysm helm", "cataclysm legplates", "cataclysm shoulderplates" }, "melee_dps"); !overrideRole.empty())
+                        return overrideRole;
+                    if (auto overrideRole = classAwareOverride({ "cataclysm headguard", "cataclysm legguards", "cataclysm shoulderguards" }, "healer"); !overrideRole.empty())
+                        return overrideRole;
+                    if (auto overrideRole = classAwareOverride({ "cataclysm headpiece", "cataclysm leggings", "cataclysm shoulderpads" }, "caster_dps"); !overrideRole.empty())
+                        return overrideRole;
+                }
+
+                // DB evidence:
+                // - Cataclysm Gauntlets / Cyclone Breastplate carry clear melee stats (AP/Str/Agi profiles)
+                // - Cataclysm Handgrips / Cyclone Hauberk carry caster stat profiles (spell hit/mp5/int-spirit style)
+                if (auto overrideRole = classAwareOverride({ "gauntlets", "breastplate", "helm", "war-kilt", "greaves", "shoulderplates" }, "melee_dps"); !overrideRole.empty())
                     return overrideRole;
-                if (auto overrideRole = classAwareOverride({ "chestguard", "gloves", "headdress", "headguard", "kilt", "leggings", "shoulderguards" }, "healer"); !overrideRole.empty())
+                // Healer-resto side (int/spirit-heavy without caster hit/crit accents).
+                if (auto overrideRole = classAwareOverride({ "chestguard", "gloves", "headdress", "headguard", "kilt", "shoulderguards" }, "healer"); !overrideRole.empty())
                     return overrideRole;
-                if (auto overrideRole = classAwareOverride({ "chestpiece", "handguards", "faceguard", "headpiece", "legguards", "leggings" }, "caster_dps"); !overrideRole.empty())
+                // Elemental-caster side (spell hit/crit variants).
+                if (auto overrideRole = classAwareOverride({ "hauberk", "handgrips", "grips", "chestpiece", "handguards", "headpiece", "faceguard", "leggings", "legguards", "spaulders", "shoulderpads" }, "caster_dps"); !overrideRole.empty())
                     return overrideRole;
 
                 if (matchesAny({ "shoulderpads" }))
@@ -993,6 +1088,31 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
         {
             if (matchesAny({ "malorne", "nordrassil" }))
             {
+                // Local DB evidence for T4/T5 druid split:
+                // - healer: Chestguard/Crown/Handguards/Legguards/Life-Kilt
+                // - caster: Chestpiece/Antlers/Gloves/Britches/Headpiece
+                // - feral (T4): Breastplate/Gauntlets/Greaves (tank vs melee by preferred role)
+                // - feral: Chestplate/Handgrips/Headdress/Feral-Kilt/Feral-Mantle (tank vs melee by preferred role)
+                if (matchesAny({ "breastplate of malorne", "gauntlets of malorne", "greaves of malorne" }))
+                {
+                    if (preferredRole == "tank")
+                        return "tank";
+                    return "melee_dps";
+                }
+
+                if (matchesAny({ "nordrassil chestplate", "nordrassil handgrips", "nordrassil headdress", "nordrassil feral-kilt", "nordrassil feral-mantle" }))
+                {
+                    if (preferredRole == "tank")
+                        return "tank";
+                    return "melee_dps";
+                }
+
+                if (matchesAny({ "chestguard of malorne", "crown of malorne", "handguards of malorne", "legguards of malorne", "nordrassil chestguard", "nordrassil headguard", "nordrassil gloves", "nordrassil life-kilt" }))
+                    return "healer";
+
+                if (matchesAny({ "chestpiece of malorne", "antlers of malorne", "gloves of malorne", "britches of malorne", "nordrassil chestpiece", "nordrassil headpiece", "nordrassil gauntlets" }))
+                    return "caster_dps";
+
                 if (matchesAny({ "mantle of malorne", "wrath-mantle" }))
                     return "caster_dps";
 
@@ -1038,6 +1158,32 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
         {
             if (matchesAny({ "incarnate", "avatar", "absolution" }))
             {
+                // TBC priest paired sets use Light-* (healer) and Soul-* (caster/shadow) naming.
+                if (matchesAny({ "light-" }))
+                    return "healer";
+                if (matchesAny({ "soul-" }))
+                    return "caster_dps";
+
+                // Absolution shoulder split by local item_template stat profile.
+                if (matchesAny({ "mantle of absolution" }))
+                    return "healer";
+                if (matchesAny({ "shoulderpads of absolution" }))
+                    return "caster_dps";
+
+                // Ambiguous non-prefixed pair in Incarnate legs:
+                // local DB stats show "Trousers" as healer-leaning (higher spirit),
+                // and "Leggings" as caster_dps-leaning (spell crit).
+                if (matchesAny({ "trousers of the incarnate" }))
+                    return "healer";
+                if (matchesAny({ "leggings of the incarnate" }))
+                    return "caster_dps";
+
+                if (matchesAny({ "cowl", "raiment", "handguards", "leggings", "mantle", "collar" }))
+                    return "healer";
+
+                if (matchesAny({ "hood", "shroud", "gloves", "breeches", "wings", "tunic" }))
+                    return "caster_dps";
+
                 if (matchesAny({ "light-", "light-collar", "light-mantle", "raiment" }))
                     return "healer";
 
@@ -1096,18 +1242,64 @@ std::string BotTokenExchangerMgr::ClassifyWotlkRewardRole(Player const* player, 
     {
         case CLASS_PALADIN:
         {
+            if (has({ "aegis" }))
+            {
+                // Local staged Aegis rows split by suffix:
+                // tank: faceguard/breastplate/handguards/legguards/shoulderguards
+                // melee: helm/battleplate/gauntlets/legplates/shoulderplates
+                // healer: headpiece/tunic/gloves/greaves/spaulders
+                if (has({ "faceguard", "breastplate", "handguards", "legguards", "shoulderguards" }))
+                    return "tank";
+                if (has({ "helm", "battleplate", "gauntlets", "legplates", "shoulderplates" }))
+                    return "melee_dps";
+                if (has({ "headpiece", "tunic", "gloves", "greaves", "spaulders" }))
+                    return "healer";
+            }
+
             if (has({ "faceguard", "chestpiece", "legguards", "handguards", "shoulderguards" }))
                 return "tank";
-            if (has({ "helmet", "breastplate", "legplates", "gauntlets", "shoulderplates" }))
+            if (has({ "helmet", "helm", "breastplate", "legplates", "gauntlets", "shoulderplates" }))
                 return "melee_dps";
             if (has({ "headpiece", "tunic", "greaves", "gloves", "spaulders", "handwraps", "cowl", "circlet", "mantle", "pants", "raiments" }))
                 return "healer";
             break;
         }
         case CLASS_WARRIOR:
+        {
+            if (has({ "siegebreaker" }))
+            {
+                // Local staged Siegebreaker rows split by suffix:
+                // tank: breastplate/handguards/greathelm/legguards/pauldrons
+                // melee: battleplate/gauntlets/helmet/legplates/shoulderplates
+                if (has({ "breastplate", "handguards", "greathelm", "legguards", "pauldrons" }))
+                    return "tank";
+                if (has({ "battleplate", "gauntlets", "helmet", "legplates", "shoulderplates" }))
+                    return "melee_dps";
+            }
+
+            if (has({ "dreadnaught" }))
+            {
+                // Local staged item stats show Dreadnaught split:
+                // tank: battleplate/gauntlets/helmet/legplates/shoulderplates
+                // melee: breastplate/handguards/greathelm/legguards/pauldrons
+                if (has({ "battleplate", "gauntlets", "helmet", "legplates", "shoulderplates" }))
+                    return "tank";
+                if (has({ "breastplate", "handguards", "greathelm", "legguards", "pauldrons" }))
+                    return "melee_dps";
+            }
+
+            if (has({ "faceguard", "chestguard", "legguards", "handguards", "shoulderguards" }))
+                return "tank";
+            if (has({ "helmet", "battleplate", "breastplate", "legplates", "gauntlets", "shoulderplates" }))
+                return "melee_dps";
+            break;
+        }
         case CLASS_DEATH_KNIGHT:
         {
-            if (has({ "faceguard", "chestguard", "legguards", "handguards", "shoulderguards" }))
+            // Local staged Scourgeborne/Darkruned rows split by suffix:
+            // tank: faceguard/chestguard/handguards/legguards/pauldrons
+            // melee: helmet/battleplate/gauntlets/legplates/shoulderplates
+            if (has({ "faceguard", "chestguard", "legguards", "handguards", "pauldrons" }))
                 return "tank";
             if (has({ "helmet", "battleplate", "breastplate", "legplates", "gauntlets", "shoulderplates" }))
                 return "melee_dps";
@@ -1115,6 +1307,28 @@ std::string BotTokenExchangerMgr::ClassifyWotlkRewardRole(Player const* player, 
         }
         case CLASS_DRUID:
         {
+            if (has({ "dreamwalker" }))
+            {
+                // Local staged Dreamwalker rows split by suffix/stat family.
+                if (has({ "raiments", "handgrips", "headguard", "legguards", "shoulderpads" }))
+                    return (role == "tank") ? "tank" : "melee_dps";
+                if (has({ "handguards", "headpiece", "leggings", "robe", "spaulders" }))
+                    return "healer";
+                if (has({ "cover", "gloves", "mantle", "trousers", "vestments" }))
+                    return "caster_dps";
+            }
+
+            if (has({ "nightsong" }))
+            {
+                // Local staged Nightsong rows split by suffix/stat family.
+                if (has({ "raiments", "handgrips", "headguard", "legguards", "shoulderpads" }))
+                    return (role == "tank") ? "tank" : "melee_dps";
+                if (has({ "handguards", "headpiece", "leggings", "vestments", "spaulders" }))
+                    return "healer";
+                if (has({ "cover", "gloves", "mantle", "trousers", "robe" }))
+                    return "caster_dps";
+            }
+
             if (has({ "headguard", "chestguard", "legguards", "handguards", "shoulderguards" }))
                 return (role == "tank") ? "tank" : "melee_dps";
             if (has({ "cover", "raiments", "vestments", "gloves", "mantle", "trousers" }))
@@ -1125,16 +1339,38 @@ std::string BotTokenExchangerMgr::ClassifyWotlkRewardRole(Player const* player, 
         }
         case CLASS_SHAMAN:
         {
-            if (has({ "chestguard", "headpiece", "kilt", "gloves", "shoulderpads" }))
-                return "healer";
+            // Protector-family split verified from staged WotLK rows:
+            // melee_dps: faceguard/helm? no -> faceguard, war-kilt, spaulders, grips, hauberk
+            // healer: headpiece, kilt, shoulderpads, handguards, chestguard
+            // caster_dps: helm, legguards, shoulderguards, gloves, tunic
             if (has({ "hauberk", "faceguard", "war-kilt", "grips", "spaulders", "helmet", "battleplate", "legplates", "gauntlets", "shoulderplates" }))
                 return "melee_dps";
-            if (has({ "tunic", "headguard", "leggings", "handguards", "mantle", "chestpiece" }))
+            if (has({ "chestguard", "headpiece", "kilt", "handguards", "shoulderpads" }))
+                return "healer";
+            if (has({ "tunic", "headguard", "helm", "leggings", "legguards", "gloves", "shoulderguards", "mantle", "chestpiece" }))
                 return "caster_dps";
             break;
         }
         case CLASS_PRIEST:
         {
+            if (has({ "faith" }))
+            {
+                // Faith sets are split by slot naming in staged rows.
+                if (has({ "circlet", "leggings", "raiment", "mantle", "handwraps", "cowl" }))
+                    return "healer";
+                if (has({ "crown", "pants", "robe", "shoulderpads", "gloves" }))
+                    return "caster_dps";
+            }
+
+            if (has({ "sanctification" }))
+            {
+                // Local staged Sanctification rows are dual-set by slot naming.
+                if (has({ "cowl", "handwraps", "leggings", "mantle", "raiments" }))
+                    return "healer";
+                if (has({ "circlet", "gloves", "pants", "robe", "shoulderpads" }))
+                    return "caster_dps";
+            }
+
             if (has({ "raiments", "cover", "cowl", "mantle", "handwraps" }))
                 return "healer";
             if (has({ "robe", "circlet", "hood", "trousers", "gloves", "shoulderpads", "crown" }))
@@ -1142,16 +1378,43 @@ std::string BotTokenExchangerMgr::ClassifyWotlkRewardRole(Player const* player, 
             break;
         }
         case CLASS_ROGUE:
-            if (has({ "bonescythe", "terrorblade", "shadowblade", "helmet", "mask", "hood", "headpiece" }))
+            if (has({ "terrorblade" }))
+                return "melee_dps";
+            if (has({ "bonescythe", "shadowblade", "helmet", "mask", "hood", "headpiece" }))
                 return "melee_dps";
             break;
         case CLASS_MAGE:
+        {
+            if (has({ "kirin tor" }))
+            {
+                if (has({ "hood", "gauntlets", "leggings", "shoulderpads", "tunic" }))
+                    return "caster_dps";
+            }
+
+            if (has({ "bloodmage" }))
+            {
+                if (has({ "hood", "gloves", "leggings", "robe", "shoulderpads" }))
+                    return "caster_dps";
+            }
+
+            if (has({ "frostfire", "kirin tor", "bloodmage", "circlet", "robe", "hood", "tunic", "leggings", "gloves", "gauntlets", "spaulders", "shoulderpads" }))
+                return "caster_dps";
+            break;
+        }
         case CLASS_WARLOCK:
-            if (has({ "frostfire", "plagueheart", "gul'dan", "kel'thuzad", "circlet", "robe", "leggings", "gloves", "spaulders" }))
+            if (has({ "deathbringer" }))
+            {
+                if (has({ "hood", "gloves", "leggings", "robe", "shoulderpads" }))
+                    return "caster_dps";
+            }
+
+            if (has({ "plagueheart", "deathbringer", "gul'dan", "kel'thuzad", "circlet", "robe", "hood", "leggings", "gloves", "spaulders", "shoulderpads" }))
                 return "caster_dps";
             break;
         case CLASS_HUNTER:
-            if (has({ "cryptstalker", "scourgestalker", "headpiece", "tunic", "leggings", "gloves", "spaulders" }))
+            if (has({ "scourgestalker" }))
+                return "ranged_dps";
+            if (has({ "cryptstalker", "headpiece", "tunic", "leggings", "gloves", "spaulders" }))
                 return "ranged_dps";
             break;
         default:
@@ -1194,6 +1457,58 @@ void BotTokenExchangerMgr::EnsurePreferenceTable()
     )SQL");
 
     _preferenceTableEnsured = true;
+}
+
+void BotTokenExchangerMgr::AutoPopulateMappingsIfEmpty()
+{
+    if (!_autoPopulateMappings)
+        return;
+
+    EnsureDiscoveryTable();
+    EnsureWotlkDiscoveryTables();
+
+    uint64 tbcCount = 0;
+    uint64 wotlkMapCount = 0;
+    uint64 wotlkCostCount = 0;
+
+    if (QueryResult tbcResult = WorldDatabase.Query("SELECT COUNT(*) FROM bot_token_exchanger_token_map WHERE source_expansion = 'TBC'"))
+        tbcCount = tbcResult->Fetch()[0].Get<uint64>();
+    if (QueryResult wotlkMapResult = WorldDatabase.Query("SELECT COUNT(*) FROM bot_token_exchanger_wotlk_map WHERE source_expansion = 'WOTLK'"))
+        wotlkMapCount = wotlkMapResult->Fetch()[0].Get<uint64>();
+    if (QueryResult wotlkCostResult = WorldDatabase.Query("SELECT COUNT(*) FROM bot_token_exchanger_wotlk_cost"))
+        wotlkCostCount = wotlkCostResult->Fetch()[0].Get<uint64>();
+
+    bool const needsTbcPopulate = (tbcCount == 0);
+    bool const needsWotlkPopulate = (wotlkMapCount == 0 || wotlkCostCount == 0);
+
+    if (!needsTbcPopulate && !needsWotlkPopulate)
+    {
+        LOG_INFO("bot_token_exchanger", "AutoPopulateMappings enabled: staged tables already populated (tbc={}, wotlk_map={}, wotlk_cost={}), skipping auto-population.", tbcCount, wotlkMapCount, wotlkCostCount);
+        return;
+    }
+
+    LOG_INFO("bot_token_exchanger", "AutoPopulateMappings enabled: auto-populating empty staged tables (tbc={}, wotlk_map={}, wotlk_cost={}).", tbcCount, wotlkMapCount, wotlkCostCount);
+    bool const previousDiscoveryWriteDb = _discoveryWriteDb;
+    _discoveryWriteDb = true;
+
+    if (needsTbcPopulate)
+        DiscoverTbcTokenMappings(nullptr);
+    if (needsWotlkPopulate)
+        DiscoverWotlkTokenMappingsStage(nullptr);
+
+    _discoveryWriteDb = previousDiscoveryWriteDb;
+
+    uint64 tbcAfter = 0;
+    uint64 wotlkMapAfter = 0;
+    uint64 wotlkCostAfter = 0;
+    if (QueryResult tbcResultAfter = WorldDatabase.Query("SELECT COUNT(*) FROM bot_token_exchanger_token_map WHERE source_expansion = 'TBC'"))
+        tbcAfter = tbcResultAfter->Fetch()[0].Get<uint64>();
+    if (QueryResult wotlkMapAfterResult = WorldDatabase.Query("SELECT COUNT(*) FROM bot_token_exchanger_wotlk_map WHERE source_expansion = 'WOTLK'"))
+        wotlkMapAfter = wotlkMapAfterResult->Fetch()[0].Get<uint64>();
+    if (QueryResult wotlkCostAfterResult = WorldDatabase.Query("SELECT COUNT(*) FROM bot_token_exchanger_wotlk_cost"))
+        wotlkCostAfter = wotlkCostAfterResult->Fetch()[0].Get<uint64>();
+
+    LOG_INFO("bot_token_exchanger", "AutoPopulateMappings complete: tbc={} wotlk_map={} wotlk_cost={}", tbcAfter, wotlkMapAfter, wotlkCostAfter);
 }
 
 void BotTokenExchangerMgr::LoadPreferenceMappings()
@@ -2887,6 +3202,1071 @@ void BotTokenExchangerMgr::ResolveWotlkBotTokenItem(ChatHandler* handler, std::s
     ResolveWotlkTokenItem(handler, player, tokenItemId);
 }
 
+void BotTokenExchangerMgr::ValidateWotlkSingleTokenChain(ChatHandler* handler, bool verbose)
+{
+    if (!handler)
+        return;
+
+    if (!_enabled)
+    {
+        handler->SendSysMessage("BotTokenExchanger is disabled.");
+        return;
+    }
+
+    LoadWotlkResolverMappings();
+
+    if (_wotlkResolverEntriesByToken.empty())
+    {
+        handler->SendSysMessage("No staged WOTLK single-token-chain mappings are loaded.");
+        return;
+    }
+
+    struct BotGroup
+    {
+        std::string name;
+        std::string classLabel;
+        std::string spec;
+        std::string role;
+        std::string faction;
+    };
+
+    struct Stats
+    {
+        uint32 resolved = 0;
+        uint32 ambiguous = 0;
+        uint32 noMatch = 0;
+        uint32 unsupported = 0;
+    };
+
+    std::vector<Player*> onlineBots;
+    {
+        std::shared_lock<std::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            (void)guid;
+            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+                continue;
+            onlineBots.push_back(player);
+        }
+    }
+
+    if (onlineBots.empty())
+    {
+        handler->SendSysMessage("No online Playerbots found for WOTLK validation.");
+        return;
+    }
+
+    std::unordered_map<std::string, Stats> perTier;
+    std::unordered_map<std::string, Stats> perGroup;
+    std::unordered_set<std::string> coverageResolved;
+    std::unordered_set<std::string> coverageSeen;
+    std::unordered_map<std::string, uint32> unresolvedFamilyCounts;
+    std::unordered_set<uint32> testedTokenIds;
+
+    uint32 totalEvaluations = 0;
+    uint32 totalUnsupported = 0;
+    uint32 verbosePrinted = 0;
+    constexpr uint32 verboseCap = 0; // 0 = unlimited in verbose mode by explicit request.
+    auto inferTierLabel = [](std::vector<ResolverEntry> const& entries) -> std::string
+    {
+        if (entries.empty())
+            return "UnknownTier";
+
+        std::unordered_set<std::string> tiers;
+        for (ResolverEntry const& entry : entries)
+        {
+            if (!entry.sourceTier.empty())
+                tiers.insert(entry.sourceTier);
+        }
+
+        if (tiers.empty())
+            return "UnknownTier";
+        if (tiers.size() == 1)
+            return *tiers.begin();
+        return "MixedTier";
+    };
+
+    for (Player* bot : onlineBots)
+    {
+        RoleResolution roleResolution = GetRoleResolution(bot);
+        BotGroup group
+        {
+            bot->GetName(),
+            ClassLabel(bot->getClass()),
+            roleResolution.detectedSpec.empty() ? "unknown" : roleResolution.detectedSpec,
+            roleResolution.detectedRole.empty() ? "unknown" : roleResolution.detectedRole,
+            GetTeamLabel(GetTeamIdForFiltering(bot))
+        };
+
+        std::string groupKey = Acore::StringFormat("{}|{}|{}|{}", group.classLabel, group.spec, group.role, group.faction);
+
+        for (auto const& [tokenItemId, entries] : _wotlkResolverEntriesByToken)
+        {
+            testedTokenIds.insert(tokenItemId);
+            ++totalEvaluations;
+
+            std::string tier = inferTierLabel(entries);
+            std::string slot = InventoryTypeLabel(entries.front().inventoryType);
+            std::string coverageKey = Acore::StringFormat("{}|{}|{}|{}|{}", tier, slot, group.classLabel, group.spec, group.role);
+            coverageSeen.insert(coverageKey);
+
+            std::vector<FilteredCandidate> filtered;
+            std::vector<std::string> skipReasons;
+            std::vector<std::string> notes;
+            bool built = BuildFilteredCandidatesFromEntriesForWotlkReadOnly(bot, tokenItemId, entries, filtered, skipReasons, notes);
+            if (!built || filtered.empty())
+            {
+                perTier[tier].noMatch++;
+                perGroup[groupKey].noMatch++;
+                if (!entries.empty())
+                    unresolvedFamilyCounts[entries.front().rewardName]++;
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "WOTLK validate [{} {} {} {}] tier={} token={} ({}) slot={} result=no-match",
+                        group.classLabel, group.spec, group.role, group.faction, tier, tokenItemId,
+                        tokenTemplate ? tokenTemplate->Name1 : "unknown", slot);
+                    ++verbosePrinted;
+                }
+                continue;
+            }
+
+            std::vector<FilteredCandidate> hybridFiltered;
+            std::vector<std::string> hybridNotes;
+            std::vector<std::string> hybridSkips;
+            if (!BuildWotlkHybridCandidates(bot, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution))
+            {
+                perTier[tier].unsupported++;
+                perGroup[groupKey].unsupported++;
+                ++totalUnsupported;
+                if (!entries.empty())
+                    unresolvedFamilyCounts[entries.front().rewardName]++;
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "WOTLK validate [{} {} {} {}] tier={} token={} ({}) slot={} result=unsupported",
+                        group.classLabel, group.spec, group.role, group.faction, tier, tokenItemId,
+                        tokenTemplate ? tokenTemplate->Name1 : "unknown", slot);
+                    ++verbosePrinted;
+                }
+                continue;
+            }
+
+            if (!hybridFiltered.empty())
+                filtered = std::move(hybridFiltered);
+
+            if (filtered.size() == 1)
+            {
+                perTier[tier].resolved++;
+                perGroup[groupKey].resolved++;
+                coverageResolved.insert(coverageKey);
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ResolverEntry const* entry = filtered.front().entry;
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "WOTLK validate [{} {} {} {}] tier={} token={} ({}) slot={} result=resolved reward={} ({})",
+                        group.classLabel, group.spec, group.role, group.faction, tier, tokenItemId,
+                        tokenTemplate ? tokenTemplate->Name1 : "unknown", slot, entry->rewardItemId, entry->rewardName);
+                    ++verbosePrinted;
+                }
+            }
+            else
+            {
+                perTier[tier].ambiguous++;
+                perGroup[groupKey].ambiguous++;
+                if (!entries.empty())
+                    unresolvedFamilyCounts[entries.front().rewardName]++;
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "WOTLK validate [{} {} {} {}] tier={} token={} ({}) slot={} result=ambiguous candidates={}",
+                        group.classLabel, group.spec, group.role, group.faction, tier, tokenItemId,
+                        tokenTemplate ? tokenTemplate->Name1 : "unknown", slot, filtered.size());
+                    ++verbosePrinted;
+                }
+            }
+        }
+    }
+
+    handler->PSendSysMessage(
+        "WOTLK single-token-chain validate complete: {} online bots, {} staged token IDs tested, {} total bot-token evaluations.",
+        onlineBots.size(), testedTokenIds.size(), totalEvaluations);
+    handler->PSendSysMessage("  total unsupported evaluations: {}", totalUnsupported);
+
+    handler->SendSysMessage("Per-tier result counts:");
+    for (auto const& [tier, stats] : perTier)
+    {
+        handler->PSendSysMessage(
+            "  {}: resolved={} ambiguous={} no-match={} unsupported={}",
+            tier, stats.resolved, stats.ambiguous, stats.noMatch, stats.unsupported);
+    }
+
+    handler->SendSysMessage("Per class/spec/role/faction coverage:");
+    for (auto const& [key, stats] : perGroup)
+    {
+        handler->PSendSysMessage(
+            "  {} => resolved={} ambiguous={} no-match={} unsupported={}",
+            key, stats.resolved, stats.ambiguous, stats.noMatch, stats.unsupported);
+    }
+
+    uint32 missingCount = 0;
+    for (std::string const& key : coverageSeen)
+    {
+        if (coverageResolved.find(key) == coverageResolved.end())
+            ++missingCount;
+    }
+    handler->PSendSysMessage("Missing tier/slot/class/spec/role combinations without any resolved result: {}", missingCount);
+
+    uint32 unresolvedPrinted = 0;
+    for (auto const& [family, count] : unresolvedFamilyCounts)
+    {
+        if (unresolvedPrinted >= 40)
+            break;
+        handler->PSendSysMessage("  unresolved family: {} ({} cases)", family, count);
+        ++unresolvedPrinted;
+    }
+    if (unresolvedFamilyCounts.size() > unresolvedPrinted)
+        handler->PSendSysMessage("  unresolved family list truncated: {} more", unresolvedFamilyCounts.size() - unresolvedPrinted);
+
+    if (!verbose)
+        handler->SendSysMessage("Use .tokenex validate wotlk single verbose for per-token output.");
+}
+
+void BotTokenExchangerMgr::ValidateWotlkSingleTokenChainUnresolved(ChatHandler* handler)
+{
+    if (!handler)
+        return;
+
+    if (!_enabled)
+    {
+        handler->SendSysMessage("BotTokenExchanger is disabled.");
+        return;
+    }
+
+    LoadWotlkResolverMappings();
+    if (_wotlkResolverEntriesByToken.empty())
+    {
+        handler->SendSysMessage("No staged WOTLK single-token-chain mappings are loaded.");
+        return;
+    }
+
+    struct Bucket
+    {
+        std::string resultType;
+        std::string family;
+        std::string classLabel;
+        std::string spec;
+        std::string role;
+        std::string slot;
+        uint32 tokenItemId = 0;
+        std::string tokenName;
+        std::string reason;
+
+        bool operator==(Bucket const& o) const
+        {
+            return resultType == o.resultType &&
+                family == o.family &&
+                classLabel == o.classLabel &&
+                spec == o.spec &&
+                role == o.role &&
+                slot == o.slot &&
+                tokenItemId == o.tokenItemId &&
+                tokenName == o.tokenName &&
+                reason == o.reason;
+        }
+    };
+
+    struct BucketHash
+    {
+        std::size_t operator()(Bucket const& b) const
+        {
+            std::size_t h = 0;
+            auto combine = [&](std::size_t v)
+            {
+                h ^= v + 0x9e3779b9 + (h << 6) + (h >> 2);
+            };
+
+            combine(std::hash<std::string>{}(b.resultType));
+            combine(std::hash<std::string>{}(b.family));
+            combine(std::hash<std::string>{}(b.classLabel));
+            combine(std::hash<std::string>{}(b.spec));
+            combine(std::hash<std::string>{}(b.role));
+            combine(std::hash<std::string>{}(b.slot));
+            combine(std::hash<uint32>{}(b.tokenItemId));
+            combine(std::hash<std::string>{}(b.tokenName));
+            combine(std::hash<std::string>{}(b.reason));
+            return h;
+        }
+    };
+
+    struct BucketStats
+    {
+        uint32 count = 0;
+        std::unordered_set<std::string> candidateRewards;
+        std::string sampleBot;
+        std::string statSummary;
+        std::vector<std::string> classifierPerCandidate;
+        std::string failStep;
+    };
+
+    auto normalizeReason = [](std::vector<std::string> const& reasons) -> std::string
+    {
+        auto hasNeedle = [&](char const* needle)
+        {
+            for (std::string const& r : reasons)
+                if (ContainsCaseInsensitive(r, needle))
+                    return true;
+            return false;
+        };
+
+        if (hasNeedle("class mask"))
+            return "class mask mismatch";
+        if (hasNeedle("CanUseItem"))
+            return "CanUseItem failed";
+        if (hasNeedle("faction"))
+            return "faction mismatch";
+        if (hasNeedle("role"))
+            return "role mismatch";
+        if (hasNeedle("multiple candidates") || hasNeedle("ambiguous"))
+            return "multiple same-role candidates";
+        if (hasNeedle("classifier"))
+            return "classifier returned unsupported";
+        return "unknown";
+    };
+
+    auto statSummaryForItem = [](ItemTemplate const* it) -> std::string
+    {
+        if (!it)
+            return "missing item_template";
+        return Acore::StringFormat(
+            "ilvl={} class={} subclass={} inv={} armor={} stats=[{}:{},{}:{},{}:{},{}:{},{}:{}]",
+            it->ItemLevel, it->Class, it->SubClass, it->InventoryType, it->Armor,
+            it->ItemStat[0].ItemStatType, it->ItemStat[0].ItemStatValue,
+            it->ItemStat[1].ItemStatType, it->ItemStat[1].ItemStatValue,
+            it->ItemStat[2].ItemStatType, it->ItemStat[2].ItemStatValue,
+            it->ItemStat[3].ItemStatType, it->ItemStat[3].ItemStatValue,
+            it->ItemStat[4].ItemStatType, it->ItemStat[4].ItemStatValue);
+    };
+
+    std::vector<Player*> onlineBots;
+    {
+        std::shared_lock<std::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            (void)guid;
+            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+                continue;
+            onlineBots.push_back(player);
+        }
+    }
+
+    if (onlineBots.empty())
+    {
+        handler->SendSysMessage("No online Playerbots found for WOTLK unresolved validation.");
+        return;
+    }
+
+    std::unordered_map<Bucket, BucketStats, BucketHash> buckets;
+
+    for (Player* bot : onlineBots)
+    {
+        RoleResolution roleResolution = GetRoleResolution(bot);
+        std::string classLabel = ClassLabel(bot->getClass());
+        std::string spec = roleResolution.detectedSpec.empty() ? "unknown" : roleResolution.detectedSpec;
+        std::string role = roleResolution.detectedRole.empty() ? "unknown" : roleResolution.detectedRole;
+
+        for (auto const& [tokenItemId, entries] : _wotlkResolverEntriesByToken)
+        {
+            ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+            std::string tokenName = tokenTemplate ? tokenTemplate->Name1 : "unknown";
+            std::string slot = entries.empty() ? "Other" : InventoryTypeLabel(entries.front().inventoryType);
+            std::string family = entries.empty() ? "unknown" : entries.front().rewardName;
+
+            std::vector<FilteredCandidate> filtered;
+            std::vector<std::string> skipReasons;
+            std::vector<std::string> notes;
+            bool built = BuildFilteredCandidatesFromEntriesForWotlkReadOnly(bot, tokenItemId, entries, filtered, skipReasons, notes);
+            if (!built || filtered.empty())
+            {
+                std::string const normalized = normalizeReason(skipReasons);
+                if (normalized == "class mask mismatch")
+                {
+                    bool classCouldMatch = false;
+                    uint32 const classMask = bot->getClassMask();
+                    for (ResolverEntry const& entry : entries)
+                    {
+                        if (entry.allowableClass != 0 && (static_cast<uint32>(entry.allowableClass) & classMask) != 0)
+                        {
+                            classCouldMatch = true;
+                            break;
+                        }
+                    }
+
+                    if (!classCouldMatch)
+                        continue; // Expected off-class token bucket; omit from actionable unresolved report.
+                }
+
+                Bucket b{ "no-match", family, classLabel, spec, role, slot, tokenItemId, tokenName, normalized };
+                BucketStats& bs = buckets[b];
+                bs.count++;
+                if (bs.sampleBot.empty())
+                    bs.sampleBot = bot->GetName();
+                if (bs.failStep.empty())
+                    bs.failStep = "BuildFilteredCandidatesFromEntriesForWotlkReadOnly";
+                if (bs.statSummary.empty() && !entries.empty())
+                    bs.statSummary = statSummaryForItem(sObjectMgr->GetItemTemplate(entries.front().rewardItemId));
+                continue;
+            }
+
+            std::vector<FilteredCandidate> hybridFiltered;
+            std::vector<std::string> hybridNotes;
+            std::vector<std::string> hybridSkips;
+            bool hybridOk = BuildWotlkHybridCandidates(bot, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution);
+            if (!hybridOk)
+            {
+                Bucket b{ "unsupported", family, classLabel, spec, role, slot, tokenItemId, tokenName, normalizeReason(hybridSkips) };
+                BucketStats& bs = buckets[b];
+                bs.count++;
+                if (bs.sampleBot.empty())
+                    bs.sampleBot = bot->GetName();
+                if (bs.failStep.empty())
+                    bs.failStep = "BuildWotlkHybridCandidates";
+                for (FilteredCandidate const& c : filtered)
+                {
+                    if (c.rewardTemplate)
+                        bs.candidateRewards.insert(c.rewardTemplate->Name1);
+                    if (c.rewardTemplate)
+                    {
+                        std::string cr = ClassifyWotlkRewardRole(bot, c.rewardTemplate, roleResolution);
+                        bs.classifierPerCandidate.push_back(Acore::StringFormat("{} -> {}", c.rewardTemplate->Name1, cr.empty() ? "unsupported" : cr));
+                    }
+                }
+                if (bs.statSummary.empty() && !entries.empty())
+                    bs.statSummary = statSummaryForItem(sObjectMgr->GetItemTemplate(entries.front().rewardItemId));
+                continue;
+            }
+
+            if (!hybridFiltered.empty())
+                filtered = std::move(hybridFiltered);
+
+            if (filtered.size() > 1)
+            {
+                Bucket b{ "ambiguous", family, classLabel, spec, role, slot, tokenItemId, tokenName, "multiple same-role candidates" };
+                BucketStats& bs = buckets[b];
+                bs.count++;
+                if (bs.sampleBot.empty())
+                    bs.sampleBot = bot->GetName();
+                if (bs.failStep.empty())
+                    bs.failStep = "post-role filter ambiguity";
+                for (FilteredCandidate const& c : filtered)
+                {
+                    if (c.rewardTemplate)
+                        bs.candidateRewards.insert(c.rewardTemplate->Name1);
+                    if (c.rewardTemplate)
+                    {
+                        std::string cr = ClassifyWotlkRewardRole(bot, c.rewardTemplate, roleResolution);
+                        bs.classifierPerCandidate.push_back(Acore::StringFormat("{} -> {}", c.rewardTemplate->Name1, cr.empty() ? "unsupported" : cr));
+                    }
+                }
+                if (bs.statSummary.empty() && !entries.empty())
+                    bs.statSummary = statSummaryForItem(sObjectMgr->GetItemTemplate(entries.front().rewardItemId));
+            }
+        }
+    }
+
+    std::vector<std::pair<Bucket, BucketStats>> ordered;
+    ordered.reserve(buckets.size());
+    for (auto const& [b, s] : buckets)
+        ordered.push_back({ b, s });
+
+    std::sort(ordered.begin(), ordered.end(), [](auto const& a, auto const& b)
+    {
+        if (a.second.count != b.second.count)
+            return a.second.count > b.second.count;
+        return a.first.family < b.first.family;
+    });
+
+    uint32 unresolvedTotal = 0;
+    for (auto const& [b, s] : ordered)
+        unresolvedTotal += s.count;
+
+    handler->PSendSysMessage("WOTLK unresolved diagnostic: {} online bots, {} unresolved bucket groups, {} unresolved evaluations.", onlineBots.size(), ordered.size(), unresolvedTotal);
+    handler->SendSysMessage("Top 10 unresolved buckets:");
+
+    uint32 printed = 0;
+    for (auto const& [b, s] : ordered)
+    {
+        if (printed >= 10)
+            break;
+
+        handler->PSendSysMessage(
+            "  [{}] count={} family='{}' class/spec/role={} / {} / {} slot={} token={} ({}) reason='{}' failStep={}",
+            b.resultType, s.count, b.family, b.classLabel, b.spec, b.role, b.slot, b.tokenItemId, b.tokenName, b.reason, s.failStep);
+        handler->PSendSysMessage("    sampleBot={}", s.sampleBot.empty() ? "n/a" : s.sampleBot);
+        handler->PSendSysMessage("    statSummary={}", s.statSummary.empty() ? "n/a" : s.statSummary);
+
+        if (!s.candidateRewards.empty())
+        {
+            std::ostringstream cs;
+            bool first = true;
+            for (std::string const& c : s.candidateRewards)
+            {
+                if (!first)
+                    cs << " | ";
+                first = false;
+                cs << c;
+            }
+            handler->PSendSysMessage("    candidates={}", cs.str());
+        }
+
+        if (!s.classifierPerCandidate.empty())
+        {
+            std::unordered_set<std::string> dedup;
+            std::ostringstream rs;
+            bool first = true;
+            for (std::string const& line : s.classifierPerCandidate)
+            {
+                if (!dedup.insert(line).second)
+                    continue;
+                if (!first)
+                    rs << " | ";
+                first = false;
+                rs << line;
+                if (dedup.size() >= 6)
+                    break;
+            }
+            handler->PSendSysMessage("    classifier={}", rs.str());
+        }
+
+        ++printed;
+    }
+}
+
+void BotTokenExchangerMgr::ValidateTbcTokenChain(ChatHandler* handler, bool verbose)
+{
+    if (!handler)
+        return;
+
+    if (!_enabled)
+    {
+        handler->SendSysMessage("BotTokenExchanger is disabled.");
+        return;
+    }
+
+    LoadResolverMappings();
+    if (_resolverEntriesByToken.empty())
+    {
+        handler->SendSysMessage("No staged TBC mappings are loaded.");
+        return;
+    }
+
+    struct Stats
+    {
+        uint32 resolved = 0;
+        uint32 ambiguous = 0;
+        uint32 noMatch = 0;
+        uint32 unsupported = 0;
+    };
+
+    std::vector<Player*> onlineBots;
+    {
+        std::shared_lock<std::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            (void)guid;
+            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+                continue;
+            onlineBots.push_back(player);
+        }
+    }
+
+    if (onlineBots.empty())
+    {
+        handler->SendSysMessage("No online Playerbots found for TBC validation.");
+        return;
+    }
+
+    auto inferTierLabel = [](std::vector<ResolverEntry> const& entries) -> std::string
+    {
+        if (entries.empty())
+            return "UnknownTier";
+
+        std::unordered_set<std::string> tiers;
+        for (ResolverEntry const& entry : entries)
+        {
+            if (!entry.sourceTier.empty())
+                tiers.insert(entry.sourceTier);
+        }
+
+        if (tiers.empty())
+            return "UnknownTier";
+        if (tiers.size() == 1)
+            return *tiers.begin();
+        return "MixedTier";
+    };
+
+    std::unordered_map<std::string, Stats> perTier;
+    std::unordered_map<std::string, Stats> perGroup;
+    std::unordered_set<std::string> coverageResolved;
+    std::unordered_set<std::string> coverageSeen;
+    std::unordered_map<std::string, uint32> unresolvedFamilyCounts;
+    std::unordered_set<uint32> testedTokenIds;
+    uint32 totalEvaluations = 0;
+    uint32 totalUnsupported = 0;
+    uint32 verbosePrinted = 0;
+    constexpr uint32 verboseCap = 0;
+
+    for (Player* bot : onlineBots)
+    {
+        RoleResolution roleResolution = GetRoleResolution(bot);
+        std::string const classLabel = ClassLabel(bot->getClass());
+        std::string const spec = roleResolution.detectedSpec.empty() ? "unknown" : roleResolution.detectedSpec;
+        std::string const role = roleResolution.detectedRole.empty() ? "unknown" : roleResolution.detectedRole;
+        std::string const faction = GetTeamLabel(GetTeamIdForFiltering(bot));
+        std::string const groupKey = Acore::StringFormat("{}|{}|{}|{}", classLabel, spec, role, faction);
+
+        for (auto const& [tokenItemId, entries] : _resolverEntriesByToken)
+        {
+            testedTokenIds.insert(tokenItemId);
+            ++totalEvaluations;
+
+            std::string const tier = inferTierLabel(entries);
+            std::string const slot = entries.empty() ? "Other" : InventoryTypeLabel(entries.front().inventoryType);
+            std::string const coverageKey = Acore::StringFormat("{}|{}|{}|{}|{}", tier, slot, classLabel, spec, role);
+            coverageSeen.insert(coverageKey);
+
+            std::vector<FilteredCandidate> filtered;
+            std::vector<std::string> skipReasons;
+            std::vector<std::string> notes;
+            bool built = BuildFilteredCandidatesFromEntries(bot, tokenItemId, entries, filtered, skipReasons, notes);
+            if (!built || filtered.empty())
+            {
+                perTier[tier].noMatch++;
+                perGroup[groupKey].noMatch++;
+                if (!entries.empty())
+                    unresolvedFamilyCounts[entries.front().rewardName]++;
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "TBC validate [{} {} {} {}] tier={} token={} ({}) slot={} result=no-match",
+                        classLabel, spec, role, faction, tier, tokenItemId, tokenTemplate ? tokenTemplate->Name1 : "unknown", slot);
+                    ++verbosePrinted;
+                }
+                continue;
+            }
+
+            std::vector<FilteredCandidate> hybridFiltered;
+            std::vector<std::string> hybridNotes;
+            std::vector<std::string> hybridSkips;
+            if (!BuildHybridCandidates(bot, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution))
+            {
+                perTier[tier].unsupported++;
+                perGroup[groupKey].unsupported++;
+                ++totalUnsupported;
+                if (!entries.empty())
+                    unresolvedFamilyCounts[entries.front().rewardName]++;
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "TBC validate [{} {} {} {}] tier={} token={} ({}) slot={} result=unsupported",
+                        classLabel, spec, role, faction, tier, tokenItemId, tokenTemplate ? tokenTemplate->Name1 : "unknown", slot);
+                    ++verbosePrinted;
+                }
+                continue;
+            }
+
+            if (!hybridFiltered.empty())
+                filtered = std::move(hybridFiltered);
+
+            if (filtered.size() == 1)
+            {
+                perTier[tier].resolved++;
+                perGroup[groupKey].resolved++;
+                coverageResolved.insert(coverageKey);
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ResolverEntry const* entry = filtered.front().entry;
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "TBC validate [{} {} {} {}] tier={} token={} ({}) slot={} result=resolved reward={} ({})",
+                        classLabel, spec, role, faction, tier, tokenItemId, tokenTemplate ? tokenTemplate->Name1 : "unknown", slot, entry->rewardItemId, entry->rewardName);
+                    ++verbosePrinted;
+                }
+            }
+            else
+            {
+                perTier[tier].ambiguous++;
+                perGroup[groupKey].ambiguous++;
+                if (!entries.empty())
+                    unresolvedFamilyCounts[entries.front().rewardName]++;
+
+                if (verbose && (verboseCap == 0 || verbosePrinted < verboseCap))
+                {
+                    ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+                    handler->PSendSysMessage(
+                        "TBC validate [{} {} {} {}] tier={} token={} ({}) slot={} result=ambiguous candidates={}",
+                        classLabel, spec, role, faction, tier, tokenItemId, tokenTemplate ? tokenTemplate->Name1 : "unknown", slot, filtered.size());
+                    ++verbosePrinted;
+                }
+            }
+        }
+    }
+
+    handler->PSendSysMessage(
+        "TBC validate complete: {} online bots, {} staged token IDs tested, {} total bot-token evaluations.",
+        onlineBots.size(), testedTokenIds.size(), totalEvaluations);
+    handler->PSendSysMessage("  total unsupported evaluations: {}", totalUnsupported);
+    handler->SendSysMessage("Per-tier result counts:");
+    for (auto const& [tier, stats] : perTier)
+    {
+        handler->PSendSysMessage(
+            "  {}: resolved={} ambiguous={} no-match={} unsupported={}",
+            tier, stats.resolved, stats.ambiguous, stats.noMatch, stats.unsupported);
+    }
+
+    handler->SendSysMessage("Per class/spec/role/faction coverage:");
+    for (auto const& [key, stats] : perGroup)
+    {
+        handler->PSendSysMessage(
+            "  {} => resolved={} ambiguous={} no-match={} unsupported={}",
+            key, stats.resolved, stats.ambiguous, stats.noMatch, stats.unsupported);
+    }
+
+    uint32 missingCount = 0;
+    for (std::string const& key : coverageSeen)
+    {
+        if (coverageResolved.find(key) == coverageResolved.end())
+            ++missingCount;
+    }
+    handler->PSendSysMessage("Missing tier/slot/class/spec/role combinations without any resolved result: {}", missingCount);
+
+    uint32 unresolvedPrinted = 0;
+    for (auto const& [family, count] : unresolvedFamilyCounts)
+    {
+        if (unresolvedPrinted >= 40)
+            break;
+        handler->PSendSysMessage("  unresolved family: {} ({} cases)", family, count);
+        ++unresolvedPrinted;
+    }
+    if (unresolvedFamilyCounts.size() > unresolvedPrinted)
+        handler->PSendSysMessage("  unresolved family list truncated: {} more", unresolvedFamilyCounts.size() - unresolvedPrinted);
+
+    if (!verbose)
+        handler->SendSysMessage("Use .tokenex validate tbc verbose for per-token output.");
+}
+
+void BotTokenExchangerMgr::ValidateTbcTokenChainUnresolved(ChatHandler* handler)
+{
+    if (!handler)
+        return;
+
+    if (!_enabled)
+    {
+        handler->SendSysMessage("BotTokenExchanger is disabled.");
+        return;
+    }
+
+    LoadResolverMappings();
+    if (_resolverEntriesByToken.empty())
+    {
+        handler->SendSysMessage("No staged TBC mappings are loaded.");
+        return;
+    }
+
+    struct Bucket
+    {
+        std::string resultType;
+        std::string family;
+        std::string classLabel;
+        std::string spec;
+        std::string role;
+        std::string faction;
+        std::string slot;
+        uint32 tokenItemId = 0;
+        std::string tokenName;
+        std::string reason;
+
+        bool operator==(Bucket const& o) const
+        {
+            return resultType == o.resultType &&
+                family == o.family &&
+                classLabel == o.classLabel &&
+                spec == o.spec &&
+                role == o.role &&
+                faction == o.faction &&
+                slot == o.slot &&
+                tokenItemId == o.tokenItemId &&
+                tokenName == o.tokenName &&
+                reason == o.reason;
+        }
+    };
+
+    struct BucketHash
+    {
+        std::size_t operator()(Bucket const& b) const
+        {
+            std::size_t h = 0;
+            auto combine = [&](std::size_t v)
+            {
+                h ^= v + 0x9e3779b9 + (h << 6) + (h >> 2);
+            };
+
+            combine(std::hash<std::string>{}(b.resultType));
+            combine(std::hash<std::string>{}(b.family));
+            combine(std::hash<std::string>{}(b.classLabel));
+            combine(std::hash<std::string>{}(b.spec));
+            combine(std::hash<std::string>{}(b.role));
+            combine(std::hash<std::string>{}(b.faction));
+            combine(std::hash<std::string>{}(b.slot));
+            combine(std::hash<uint32>{}(b.tokenItemId));
+            combine(std::hash<std::string>{}(b.tokenName));
+            combine(std::hash<std::string>{}(b.reason));
+            return h;
+        }
+    };
+
+    struct BucketStats
+    {
+        uint32 count = 0;
+        std::unordered_set<std::string> candidateRewards;
+        std::string sampleBot;
+        std::string statSummary;
+        std::vector<std::string> classifierPerCandidate;
+        std::string failStep;
+    };
+
+    auto normalizeReason = [](std::vector<std::string> const& reasons) -> std::string
+    {
+        auto hasNeedle = [&](char const* needle)
+        {
+            for (std::string const& r : reasons)
+                if (ContainsCaseInsensitive(r, needle))
+                    return true;
+            return false;
+        };
+
+        if (hasNeedle("class mask"))
+            return "class mask mismatch";
+        if (hasNeedle("CanUseItem"))
+            return "CanUseItem failed";
+        if (hasNeedle("faction"))
+            return "faction mismatch";
+        if (hasNeedle("role"))
+            return "role mismatch";
+        if (hasNeedle("multiple candidates") || hasNeedle("ambiguous"))
+            return "multiple same-role candidates";
+        if (hasNeedle("classifier"))
+            return "classifier returned unsupported";
+        return "unknown";
+    };
+
+    auto statSummaryForItem = [](ItemTemplate const* it) -> std::string
+    {
+        if (!it)
+            return "missing item_template";
+        return Acore::StringFormat(
+            "ilvl={} class={} subclass={} inv={} armor={} stats=[{}:{},{}:{},{}:{},{}:{},{}:{}]",
+            it->ItemLevel, it->Class, it->SubClass, it->InventoryType, it->Armor,
+            it->ItemStat[0].ItemStatType, it->ItemStat[0].ItemStatValue,
+            it->ItemStat[1].ItemStatType, it->ItemStat[1].ItemStatValue,
+            it->ItemStat[2].ItemStatType, it->ItemStat[2].ItemStatValue,
+            it->ItemStat[3].ItemStatType, it->ItemStat[3].ItemStatValue,
+            it->ItemStat[4].ItemStatType, it->ItemStat[4].ItemStatValue);
+    };
+
+    std::vector<Player*> onlineBots;
+    {
+        std::shared_lock<std::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            (void)guid;
+            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+                continue;
+            onlineBots.push_back(player);
+        }
+    }
+
+    if (onlineBots.empty())
+    {
+        handler->SendSysMessage("No online Playerbots found for TBC unresolved validation.");
+        return;
+    }
+
+    std::unordered_map<Bucket, BucketStats, BucketHash> buckets;
+
+    for (Player* bot : onlineBots)
+    {
+        RoleResolution roleResolution = GetRoleResolution(bot);
+        std::string const classLabel = ClassLabel(bot->getClass());
+        std::string const spec = roleResolution.detectedSpec.empty() ? "unknown" : roleResolution.detectedSpec;
+        std::string const role = roleResolution.detectedRole.empty() ? "unknown" : roleResolution.detectedRole;
+        std::string const faction = GetTeamLabel(GetTeamIdForFiltering(bot));
+
+        for (auto const& [tokenItemId, entries] : _resolverEntriesByToken)
+        {
+            ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
+            std::string const tokenName = tokenTemplate ? tokenTemplate->Name1 : "unknown";
+            std::string const slot = entries.empty() ? "Other" : InventoryTypeLabel(entries.front().inventoryType);
+            std::string const family = entries.empty() ? "unknown" : entries.front().rewardName;
+
+            std::vector<FilteredCandidate> filtered;
+            std::vector<std::string> skipReasons;
+            std::vector<std::string> notes;
+            bool built = BuildFilteredCandidatesFromEntries(bot, tokenItemId, entries, filtered, skipReasons, notes);
+            if (!built || filtered.empty())
+            {
+                std::string const normalized = normalizeReason(skipReasons);
+                if (normalized == "class mask mismatch")
+                    continue; // Expected off-class token bucket; omit from actionable unresolved report.
+
+                Bucket b{ "no-match", family, classLabel, spec, role, faction, slot, tokenItemId, tokenName, normalized };
+                BucketStats& bs = buckets[b];
+                bs.count++;
+                if (bs.sampleBot.empty())
+                    bs.sampleBot = bot->GetName();
+                if (bs.failStep.empty())
+                    bs.failStep = "BuildFilteredCandidatesFromEntries";
+                if (bs.statSummary.empty() && !entries.empty())
+                    bs.statSummary = statSummaryForItem(sObjectMgr->GetItemTemplate(entries.front().rewardItemId));
+                continue;
+            }
+
+            std::vector<FilteredCandidate> hybridFiltered;
+            std::vector<std::string> hybridNotes;
+            std::vector<std::string> hybridSkips;
+            bool hybridOk = BuildHybridCandidates(bot, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution);
+            if (!hybridOk)
+            {
+                Bucket b{ "unsupported", family, classLabel, spec, role, faction, slot, tokenItemId, tokenName, normalizeReason(hybridSkips) };
+                BucketStats& bs = buckets[b];
+                bs.count++;
+                if (bs.sampleBot.empty())
+                    bs.sampleBot = bot->GetName();
+                if (bs.failStep.empty())
+                    bs.failStep = "BuildHybridCandidates";
+                for (FilteredCandidate const& c : filtered)
+                {
+                    if (c.rewardTemplate)
+                        bs.candidateRewards.insert(c.rewardTemplate->Name1);
+                    if (c.rewardTemplate)
+                    {
+                        std::string cr = ClassifyRewardRole(bot, c.rewardTemplate, roleResolution);
+                        bs.classifierPerCandidate.push_back(Acore::StringFormat("{} -> {}", c.rewardTemplate->Name1, cr.empty() ? "unsupported" : cr));
+                    }
+                }
+                if (bs.statSummary.empty() && !entries.empty())
+                    bs.statSummary = statSummaryForItem(sObjectMgr->GetItemTemplate(entries.front().rewardItemId));
+                continue;
+            }
+
+            if (!hybridFiltered.empty())
+                filtered = std::move(hybridFiltered);
+
+            if (filtered.size() > 1)
+            {
+                Bucket b{ "ambiguous", family, classLabel, spec, role, faction, slot, tokenItemId, tokenName, "multiple same-role candidates" };
+                BucketStats& bs = buckets[b];
+                bs.count++;
+                if (bs.sampleBot.empty())
+                    bs.sampleBot = bot->GetName();
+                if (bs.failStep.empty())
+                    bs.failStep = "post-role filter ambiguity";
+                for (FilteredCandidate const& c : filtered)
+                {
+                    if (c.rewardTemplate)
+                        bs.candidateRewards.insert(c.rewardTemplate->Name1);
+                    if (c.rewardTemplate)
+                    {
+                        std::string cr = ClassifyRewardRole(bot, c.rewardTemplate, roleResolution);
+                        bs.classifierPerCandidate.push_back(Acore::StringFormat("{} -> {}", c.rewardTemplate->Name1, cr.empty() ? "unsupported" : cr));
+                    }
+                }
+                if (bs.statSummary.empty() && !entries.empty())
+                    bs.statSummary = statSummaryForItem(sObjectMgr->GetItemTemplate(entries.front().rewardItemId));
+            }
+        }
+    }
+
+    std::vector<std::pair<Bucket, BucketStats>> ordered;
+    ordered.reserve(buckets.size());
+    for (auto const& [b, s] : buckets)
+        ordered.push_back({ b, s });
+
+    std::sort(ordered.begin(), ordered.end(), [](auto const& a, auto const& b)
+    {
+        if (a.second.count != b.second.count)
+            return a.second.count > b.second.count;
+        return a.first.family < b.first.family;
+    });
+
+    uint32 unresolvedTotal = 0;
+    for (auto const& [b, s] : ordered)
+        unresolvedTotal += s.count;
+
+    handler->PSendSysMessage("TBC unresolved diagnostic: {} online bots, {} unresolved bucket groups, {} unresolved evaluations.", onlineBots.size(), ordered.size(), unresolvedTotal);
+    handler->SendSysMessage("Top 10 unresolved buckets:");
+
+    uint32 printed = 0;
+    for (auto const& [b, s] : ordered)
+    {
+        if (printed >= 10)
+            break;
+
+        handler->PSendSysMessage(
+            "  [{}] count={} family='{}' class/spec/role/faction={} / {} / {} / {} slot={} token={} ({}) reason='{}' failStep={}",
+            b.resultType, s.count, b.family, b.classLabel, b.spec, b.role, b.faction, b.slot, b.tokenItemId, b.tokenName, b.reason, s.failStep);
+        handler->PSendSysMessage("    sampleBot={}", s.sampleBot.empty() ? "n/a" : s.sampleBot);
+        handler->PSendSysMessage("    statSummary={}", s.statSummary.empty() ? "n/a" : s.statSummary);
+
+        if (!s.candidateRewards.empty())
+        {
+            std::ostringstream cs;
+            bool first = true;
+            for (std::string const& c : s.candidateRewards)
+            {
+                if (!first)
+                    cs << " | ";
+                first = false;
+                cs << c;
+            }
+            handler->PSendSysMessage("    candidates={}", cs.str());
+        }
+
+        if (!s.classifierPerCandidate.empty())
+        {
+            std::unordered_set<std::string> dedup;
+            std::ostringstream rs;
+            bool first = true;
+            for (std::string const& line : s.classifierPerCandidate)
+            {
+                if (!dedup.insert(line).second)
+                    continue;
+                if (!first)
+                    rs << " | ";
+                first = false;
+                rs << line;
+                if (dedup.size() >= 6)
+                    break;
+            }
+            handler->PSendSysMessage("    classifier={}", rs.str());
+        }
+
+        ++printed;
+    }
+}
+
 void BotTokenExchangerMgr::ShowStatus(ChatHandler* handler)
 {
     if (!handler)
@@ -2900,6 +4280,7 @@ void BotTokenExchangerMgr::ShowStatus(ChatHandler* handler)
     handler->PSendSysMessage("  WotlkExchangeEnable: {}", _wotlkExchangeEnable ? 1 : 0);
     handler->PSendSysMessage("  WotlkDryRun: {}", _wotlkDryRun ? 1 : 0);
     handler->PSendSysMessage("  WotlkAutoExchangeEnable: {}", _wotlkAutoExchangeEnable ? 1 : 0);
+    handler->PSendSysMessage("  WotlkTelemetryEnable: {}", _wotlkTelemetryEnable ? 1 : 0);
     handler->PSendSysMessage("  AllowDebugTargetCommand: {}", _allowDebugTargetCommand ? 1 : 0);
     handler->PSendSysMessage("  PlayerbotLootPassEnable: {}", _playerbotLootPassEnable ? 1 : 0);
     handler->PSendSysMessage("  LoadedMappingCount: {}", GetLoadedResolverMappingCount());
@@ -2907,6 +4288,7 @@ void BotTokenExchangerMgr::ShowStatus(ChatHandler* handler)
     handler->PSendSysMessage("  WotlkSingleTokenChainCount: {}", GetLoadedWotlkTokenKeyCount());
     handler->PSendSysMessage("  QueueSize: {}", GetAutoExchangeQueueSize());
     handler->PSendSysMessage("  DiscoveryWriteDb: {}", _discoveryWriteDb ? 1 : 0);
+    handler->PSendSysMessage("  AutoPopulateMappings: {}", _autoPopulateMappings ? 1 : 0);
     handler->PSendSysMessage("  ResolveOnly: {}", _resolveOnly ? 1 : 0);
     handler->PSendSysMessage("  OnlyPlayerbots: {}", _onlyPlayerbots ? 1 : 0);
 }
@@ -3304,6 +4686,15 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         if (!BuildFilteredCandidatesFromEntriesForWotlkReadOnly(player, tokenItemId, *entries, filtered, skipReasons, notes))
         {
             ++skippedCount;
+            MaybeLogWotlkUnresolvedTelemetry(
+                player,
+                tokenItemId,
+                tokenTemplate,
+                *entries,
+                filtered,
+                nullptr,
+                skipReasons.empty() ? "no safe staged resolver entries" : skipReasons.front(),
+                "missing_match");
             for (std::string const& reason : skipReasons)
                 sendFormatted("  skip: {}", reason);
             sendFormatted("skip WOTLK token {} ({}): no safe staged resolver entries", tokenItemId, tokenTemplate->Name1);
@@ -3318,6 +4709,15 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         if (!BuildWotlkHybridCandidates(player, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution))
         {
             ++skippedCount;
+            MaybeLogWotlkUnresolvedTelemetry(
+                player,
+                tokenItemId,
+                tokenTemplate,
+                *entries,
+                filtered,
+                &roleResolution,
+                hybridSkips.empty() ? "no safe reward after role filtering" : hybridSkips.front(),
+                "unsupported");
             for (std::string const& reason : skipReasons)
                 sendFormatted("  skip: {}", reason);
             for (std::string const& reason : hybridSkips)
@@ -3342,6 +4742,15 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         if (filtered.empty())
         {
             ++skippedCount;
+            MaybeLogWotlkUnresolvedTelemetry(
+                player,
+                tokenItemId,
+                tokenTemplate,
+                *entries,
+                filtered,
+                &roleResolution,
+                "no safe reward resolved",
+                "missing_match");
             sendFormatted("skip WOTLK token {} ({}): no safe reward resolved", tokenItemId, tokenTemplate->Name1);
             logWotlkEvent(Acore::StringFormat("skip bot {} token {} ({}): no safe reward resolved", player->GetName(), tokenItemId, tokenTemplate->Name1));
             continue;
@@ -3350,6 +4759,15 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         if (filtered.size() > 1)
         {
             ++skippedCount;
+            MaybeLogWotlkUnresolvedTelemetry(
+                player,
+                tokenItemId,
+                tokenTemplate,
+                *entries,
+                filtered,
+                &roleResolution,
+                "multiple same-role candidates",
+                "ambiguous");
             std::ostringstream ss;
             ss << "skip WOTLK token " << tokenItemId << " (" << tokenTemplate->Name1 << "): ambiguous candidates";
             for (FilteredCandidate const& candidate : filtered)
@@ -3438,6 +4856,107 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
             resolvedCount,
             skippedCount,
             _wotlkDryRun ? "dry-run" : "real exchange"));
+}
+
+void BotTokenExchangerMgr::MaybeLogWotlkUnresolvedTelemetry(
+    Player* player,
+    uint32 tokenItemId,
+    ItemTemplate const* tokenTemplate,
+    std::vector<ResolverEntry> const& entries,
+    std::vector<FilteredCandidate> const& filteredCandidates,
+    RoleResolution const* roleResolution,
+    std::string const& failReason,
+    char const* outcome)
+{
+    if (!_wotlkTelemetryEnable || !player || !tokenTemplate || !outcome || !*outcome)
+        return;
+
+    constexpr uint64 kCooldownMs = 30 * 60 * 1000;
+    uint64 const nowMs = GameTime::GetGameTimeMS().count();
+
+    auto familyFromName = [](std::string const& name) -> std::string
+    {
+        if (name.empty())
+            return "unknown";
+
+        std::istringstream ss(name);
+        std::string first;
+        std::string second;
+        ss >> first >> second;
+        if (!second.empty())
+            return second;
+        return first;
+    };
+
+    std::string family = "unknown";
+    if (!filteredCandidates.empty() && filteredCandidates.front().rewardTemplate)
+        family = familyFromName(filteredCandidates.front().rewardTemplate->Name1);
+    else if (!entries.empty())
+        family = familyFromName(entries.front().rewardName);
+
+    RoleResolution rr;
+    if (roleResolution)
+        rr = *roleResolution;
+    else
+        rr = GetRoleResolution(player);
+
+    std::string const classLabel = ClassLabel(player->getClass());
+    std::string const spec = rr.detectedSpec.empty() ? "unknown" : rr.detectedSpec;
+    std::string const role = rr.manualConfigured ? rr.manualRole : (rr.detectedRole.empty() ? "unknown" : rr.detectedRole);
+
+    std::ostringstream candidateNames;
+    uint32 appended = 0;
+    std::unordered_set<uint32> seenRewardIds;
+    for (FilteredCandidate const& c : filteredCandidates)
+    {
+        if (!c.rewardTemplate || !c.entry || !seenRewardIds.insert(c.entry->rewardItemId).second)
+            continue;
+        if (appended != 0)
+            candidateNames << "|";
+        candidateNames << c.entry->rewardItemId << ":" << c.rewardTemplate->Name1;
+        if (++appended >= 5)
+            break;
+    }
+    if (appended == 0)
+    {
+        for (ResolverEntry const& e : entries)
+        {
+            if (!seenRewardIds.insert(e.rewardItemId).second)
+                continue;
+            if (appended != 0)
+                candidateNames << "|";
+            candidateNames << e.rewardItemId << ":" << e.rewardName;
+            if (++appended >= 5)
+                break;
+        }
+    }
+
+    std::string const key = Acore::StringFormat(
+        "{}|{}|{}|{}|{}|{}",
+        tokenItemId,
+        family,
+        classLabel,
+        spec,
+        role,
+        outcome);
+
+    auto itr = _wotlkTelemetryLastLogMsByKey.find(key);
+    if (itr != _wotlkTelemetryLastLogMsByKey.end() && nowMs < itr->second + kCooldownMs)
+        return;
+    _wotlkTelemetryLastLogMsByKey[key] = nowMs;
+
+    LOG_WARN(
+        "bot_token_exchanger",
+        "WOTLK_UNRESOLVED: outcome={} token={} ({}) family={} class={} spec={} role={} reason={} candidates={}",
+        outcome,
+        tokenItemId,
+        tokenTemplate->Name1,
+        family,
+        classLabel,
+        spec,
+        role,
+        failReason.empty() ? "unknown" : failReason,
+        candidateNames.str().empty() ? "none" : candidateNames.str());
 }
 
 void BotTokenExchangerMgr::ExchangeWotlkSelectedTokens(ChatHandler* handler)
@@ -3573,12 +5092,12 @@ void BotTokenExchangerMgr::DiscoverWotlkTokenMappingsInspect(ChatHandler* handle
 
 void BotTokenExchangerMgr::DiscoverWotlkTokenMappingsStage(ChatHandler* handler)
 {
-    if (!handler)
-        return;
-
     if (!_enabled)
     {
-        handler->SendSysMessage("BotTokenExchanger is disabled.");
+        if (handler)
+            handler->SendSysMessage("BotTokenExchanger is disabled.");
+        else
+            LOG_INFO("bot_token_exchanger", "WOTLK stage discovery skipped: module disabled.");
         return;
     }
 
@@ -3596,9 +5115,20 @@ void BotTokenExchangerMgr::DiscoverWotlkTokenMappingsStage(ChatHandler* handler)
 
     if (!vendorResult)
     {
-        handler->SendSysMessage("No matching WOTLK narrow vendor rows found.");
+        if (handler)
+            handler->SendSysMessage("No matching WOTLK narrow vendor rows found.");
+        else
+            LOG_INFO("bot_token_exchanger", "WOTLK stage discovery found no narrow vendor rows.");
         return;
     }
+
+    auto send = [&](std::string const& msg)
+    {
+        if (handler)
+            handler->PSendSysMessage("{}", msg);
+        else
+            LOG_INFO("bot_token_exchanger", "{}", msg);
+    };
 
     std::unordered_set<uint32> rewardsDiscovered;
     std::unordered_set<uint32> vendorsScanned;
@@ -3759,47 +5289,55 @@ void BotTokenExchangerMgr::DiscoverWotlkTokenMappingsStage(ChatHandler* handler)
         vendors << vendorList[i];
     }
 
-    handler->PSendSysMessage("WOTLK stage discovery write-to-DB: {}", _discoveryWriteDb ? "enabled" : "disabled (log-only)");
-    handler->PSendSysMessage("WOTLK stage summary: vendors scanned {}, reward rows inspected {}, rewards discovered {}, cost rows discovered {}, staged reward rows {}, staged cost rows {}",
-        static_cast<uint32>(vendorList.size()), inspectedRows, static_cast<uint32>(rewardsDiscovered.size()), costRowsDiscovered, stagedRewards, stagedCosts);
-    handler->PSendSysMessage("WOTLK stage vendor list: {}", vendors.str());
+    send(Acore::StringFormat("WOTLK stage discovery write-to-DB: {}", _discoveryWriteDb ? "enabled" : "disabled (log-only)"));
+    send(Acore::StringFormat("WOTLK stage summary: vendors scanned {}, reward rows inspected {}, rewards discovered {}, cost rows discovered {}, staged reward rows {}, staged cost rows {}",
+        static_cast<uint32>(vendorList.size()), inspectedRows, static_cast<uint32>(rewardsDiscovered.size()), costRowsDiscovered, stagedRewards, stagedCosts));
+    send(Acore::StringFormat("WOTLK stage vendor list: {}", vendors.str()));
 
     if (!structureCounts.empty())
     {
-        handler->SendSysMessage("WOTLK stage structures:");
+        send("WOTLK stage structures:");
         std::vector<std::pair<std::string, uint32>> rows(structureCounts.begin(), structureCounts.end());
         std::sort(rows.begin(), rows.end(), [](auto const& a, auto const& b) { return a.second > b.second; });
         for (auto const& [name, count] : rows)
-            handler->PSendSysMessage("  {}: {}", name, count);
+            send(Acore::StringFormat("  {}: {}", name, count));
     }
 
     if (!roleCounts.empty())
     {
-        handler->SendSysMessage("WOTLK required item roles:");
+        send("WOTLK required item roles:");
         std::vector<std::pair<std::string, uint32>> rows(roleCounts.begin(), roleCounts.end());
         std::sort(rows.begin(), rows.end(), [](auto const& a, auto const& b) { return a.second > b.second; });
         for (auto const& [name, count] : rows)
-            handler->PSendSysMessage("  {}: {}", name, count);
+            send(Acore::StringFormat("  {}: {}", name, count));
     }
 
     if (!rewardExamples.empty())
     {
-        handler->SendSysMessage("WOTLK stage representative rows (capped):");
+        send("WOTLK stage representative rows (capped):");
         for (std::string const& line : rewardExamples)
-            handler->PSendSysMessage("  {}", line);
-    }
+            send(Acore::StringFormat("  {}", line));
+}
 }
 
 void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::string const& sourceExpansion, bool narrowVendorsOnly, bool inspectMode)
 {
-    if (!handler)
-        return;
-
     if (!_enabled)
     {
-        handler->SendSysMessage("BotTokenExchanger is disabled.");
+        if (handler)
+            handler->SendSysMessage("BotTokenExchanger is disabled.");
+        else
+            LOG_INFO("bot_token_exchanger", "Discovery [{}] skipped: module disabled.", sourceExpansion);
         return;
     }
+
+    auto send = [&](std::string const& msg)
+    {
+        if (handler)
+            handler->PSendSysMessage("{}", msg);
+        else
+            LOG_INFO("bot_token_exchanger", "{}", msg);
+    };
 
     std::string vendorQuery;
     if (sourceExpansion == "TBC")
@@ -3833,7 +5371,7 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
     }
     else
     {
-        handler->PSendSysMessage("Unknown discovery expansion '{}'.", sourceExpansion);
+        send(Acore::StringFormat("Unknown discovery expansion '{}'.", sourceExpansion));
         return;
     }
 
@@ -3841,7 +5379,7 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
 
     if (!vendorResult)
     {
-        handler->PSendSysMessage("No matching {} vendor rows found.", sourceExpansion);
+        send(Acore::StringFormat("No matching {} vendor rows found.", sourceExpansion));
         return;
     }
 
@@ -3886,7 +5424,7 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
         if (CreatureTemplate const* vendorTemplate = sObjectMgr->GetCreatureTemplate(vendorEntry))
             vendorName = vendorTemplate->Name;
 
-        handler->PSendSysMessage("Inspect sample [{} #{}]: vendor {} ({}) reward {} ({}) extcost {} skip {}",
+        send(Acore::StringFormat("Inspect sample [{} #{}]: vendor {} ({}) reward {} ({}) extcost {} skip {}",
             structure,
             emitted,
             vendorEntry,
@@ -3894,17 +5432,17 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
             rewardItemId,
             rewardTemplate->Name1,
             extendedCostId,
-            skipReason);
-        handler->PSendSysMessage("  reqs: [0] {}; [1] {}; [2] {}; [3] {}; [4] {}",
+            skipReason));
+        send(Acore::StringFormat("  reqs: [0] {}; [1] {}; [2] {}; [3] {}; [4] {}",
             formatReqItem(costEntry->reqitem[0], costEntry->reqitemcount[0]),
             formatReqItem(costEntry->reqitem[1], costEntry->reqitemcount[1]),
             formatReqItem(costEntry->reqitem[2], costEntry->reqitemcount[2]),
             formatReqItem(costEntry->reqitem[3], costEntry->reqitemcount[3]),
-            formatReqItem(costEntry->reqitem[4], costEntry->reqitemcount[4]));
-        handler->PSendSysMessage("  currency: honor={} arena={} rating={}",
+            formatReqItem(costEntry->reqitem[4], costEntry->reqitemcount[4])));
+        send(Acore::StringFormat("  currency: honor={} arena={} rating={}",
             costEntry->reqhonorpoints,
             costEntry->reqarenapoints,
-            costEntry->reqpersonalarenarating);
+            costEntry->reqpersonalarenarating));
     };
 
     auto recordSkip = [&](std::string const& reason, std::string const& detail)
@@ -3913,7 +5451,7 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
         ++skipByReason[reason];
         LOG_INFO("bot_token_exchanger", "{}", detail);
         if (_debug && !inspectMode)
-            handler->PSendSysMessage("{}", detail);
+            send(detail);
     };
 
     do
@@ -4133,7 +5671,7 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
 
         LOG_INFO("bot_token_exchanger", "{}", candidateMessage);
         if (_debug)
-            handler->PSendSysMessage("{}", candidateMessage);
+            send(candidateMessage);
         if (acceptedSamples.size() < 10)
             acceptedSamples.push_back(candidateMessage);
 
@@ -4162,14 +5700,14 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
     if (_discoveryWriteDb)
     {
         EnsureDiscoveryTable();
-        handler->PSendSysMessage("Discovery staging table is enabled.");
+        send("Discovery staging table is enabled.");
     }
     else
     {
-        handler->PSendSysMessage("Discovery write-to-DB is disabled; log-only mode was used.");
+        send("Discovery write-to-DB is disabled; log-only mode was used.");
     }
 
-    handler->PSendSysMessage("Discovery [{}{}{}] complete: vendors scanned {}, reward rows inspected {}, accepted mappings {}, skipped mappings {}, staged {}.",
+    send(Acore::StringFormat("Discovery [{}{}{}] complete: vendors scanned {}, reward rows inspected {}, accepted mappings {}, skipped mappings {}, staged {}.",
         sourceExpansion,
         narrowVendorsOnly ? " narrow" : "",
         inspectMode ? " inspect" : "",
@@ -4177,26 +5715,26 @@ void BotTokenExchangerMgr::DiscoverTokenMappings(ChatHandler* handler, std::stri
         inspectedRows,
         candidateCount,
         skippedCount,
-        stagedCount);
+        stagedCount));
     if (!vendorsSorted.empty())
-        handler->PSendSysMessage("Discovery vendor list: {}", vendorList.str());
+        send(Acore::StringFormat("Discovery vendor list: {}", vendorList.str()));
 
     if (!skipSummary.empty())
     {
-        handler->SendSysMessage("Skipped mappings by reason:");
+        send("Skipped mappings by reason:");
         for (auto const& [reason, count] : skipSummary)
-            handler->PSendSysMessage("  {}: {}", reason, count);
+            send(Acore::StringFormat("  {}: {}", reason, count));
     }
 
     if (!acceptedSamples.empty())
     {
-        handler->SendSysMessage("Representative accepted mappings (capped at 10):");
+        send("Representative accepted mappings (capped at 10):");
         for (std::string const& sample : acceptedSamples)
-            handler->PSendSysMessage("  {}", sample);
+            send(Acore::StringFormat("  {}", sample));
     }
 
     std::string unresolved = "none";
     if (!skipSummary.empty())
         unresolved = skipSummary.front().first;
-    handler->PSendSysMessage("Unresolved category focus: {}", unresolved);
+    send(Acore::StringFormat("Unresolved category focus: {}", unresolved));
 }

@@ -260,3 +260,9 @@ No other class/family logic changed in this step.
 - Build/install: passed.
 - worldserver restart: passed (`active`).
 - Immediate post-restart log window showed no new BotTokenExchanger ambiguity/skip lines.
+
+## Stabilization Note (2026-05-18)
+
+- Final pre-rollout cleanup kept production TBC behavior unchanged.
+- WotLK remains gated to limited single-token-chain beta scope.
+- Build/install/runtime sanity workflow (`scripts/verify-live-binary.sh`) is now required before trusting validation metrics.

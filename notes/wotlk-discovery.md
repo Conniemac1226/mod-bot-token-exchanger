@@ -957,3 +957,9 @@ Observed outcomes:
 - No WotLK exchange enabled.
 - No emblem-like or upgrade-chain support added.
 - TBC resolver still works (`.tokenex resolve bot Cahkul` remained normal and read-only).
+
+## Release Stabilization Snapshot (2026-05-18)
+
+- WotLK exchange scope remains intentionally limited to staged `single_token_chain`.
+- `emblem_like` and `token_plus_prior_armor_upgrade` structures remain discovery/staging-only.
+- No architecture changes were introduced in stabilization.
