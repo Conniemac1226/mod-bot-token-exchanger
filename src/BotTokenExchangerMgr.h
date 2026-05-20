@@ -48,6 +48,8 @@ public:
     void ShowBotRole(class ChatHandler* handler, std::string const& botName);
     void ShowSelectedRole(class ChatHandler* handler);
     void SetSelectedRolePreference(class ChatHandler* handler, std::string const& role);
+    void ScheduleStartupValidationIfEnabled(uint64 nowMs);
+    void TickStartupValidation(uint64 nowMs);
 
     [[nodiscard]] bool IsEnabled() const { return _enabled; }
     [[nodiscard]] bool IsDebugEnabled() const { return _debug; }
@@ -232,6 +234,12 @@ private:
     bool _wotlkDryRun = true;
     bool _wotlkAutoExchangeEnable = false;
     bool _wotlkTelemetryEnable = true;
+    bool _runValidationOnStartup = false;
+    std::string _startupValidationMode = "none";
+    uint32 _startupValidationDelayMs = 60000;
+    bool _startupValidationRan = false;
+    bool _startupValidationScheduled = false;
+    uint64 _startupValidationRunAtMs = 0;
     uint32 _autoExchangeDelayMs = 1500;
     bool _autoExchangeOnLoot = true;
     bool _autoExchangeOnLogin = false;

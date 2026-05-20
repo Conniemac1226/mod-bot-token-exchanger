@@ -51,3 +51,6 @@ scripts/verify-live-binary.sh
 - Full-bag/store-failure paths should continue periodic live verification under load.
 - Hybrid role/spec detection can still produce safe no-match in edge gear/spec states.
 - WotLK auto remains limited beta scope and should stay explicitly gated.
+
+## Headless Validation Note
+- Startup headless validation is available via `RunValidationOnStartup` + `StartupValidationMode` + `StartupValidationDelayMs`; use delay on headless service hosts where Playerbots come online after world startup, and keep it disabled outside explicit validation runs.

@@ -22,6 +22,8 @@
 #include <array>
 #include <charconv>
 #include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <limits>
 #include <sstream>
@@ -184,6 +186,20 @@ namespace
         }
     }
 
+    void StartupValidationCliCapture(void* arg, std::string_view text)
+    {
+        if (!arg)
+            return;
+
+        auto* lines = static_cast<std::vector<std::string>*>(arg);
+        std::string line(text);
+        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+        line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
+        if (line.empty())
+            return;
+        lines->push_back(line);
+    }
+
 }
 
 BotTokenExchangerMgr& BotTokenExchangerMgr::instance()
@@ -211,6 +227,12 @@ void BotTokenExchangerMgr::LoadConfig()
     _wotlkDryRun = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkDryRun", true);
     _wotlkAutoExchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkAutoExchangeEnable", false);
     _wotlkTelemetryEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkTelemetryEnable", true);
+    _runValidationOnStartup = sConfigMgr->GetOption<bool>("BotTokenExchanger.RunValidationOnStartup", false);
+    _startupValidationMode = ToLowerCopy(sConfigMgr->GetOption<std::string>("BotTokenExchanger.StartupValidationMode", "none"));
+    _startupValidationDelayMs = sConfigMgr->GetOption<uint32>("BotTokenExchanger.StartupValidationDelayMs", 60000);
+    _startupValidationRan = false;
+    _startupValidationScheduled = false;
+    _startupValidationRunAtMs = 0;
     _autoExchangeDelayMs = sConfigMgr->GetOption<uint32>("BotTokenExchanger.AutoExchangeDelayMs", 1500);
     _autoExchangeOnLoot = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeOnLoot", true);
     _autoExchangeOnLogin = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeOnLogin", false);
@@ -218,7 +240,7 @@ void BotTokenExchangerMgr::LoadConfig()
 
     LOG_INFO(
         "server",
-        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
+        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} RunValidationOnStartup={} StartupValidationMode={} StartupValidationDelayMs={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
         _enabled ? 1 : 0,
         _debug ? 1 : 0,
         _onlyPlayerbots ? 1 : 0,
@@ -234,6 +256,9 @@ void BotTokenExchangerMgr::LoadConfig()
         _wotlkDryRun ? 1 : 0,
         _wotlkAutoExchangeEnable ? 1 : 0,
         _wotlkTelemetryEnable ? 1 : 0,
+        _runValidationOnStartup ? 1 : 0,
+        _startupValidationMode,
+        _startupValidationDelayMs,
         _autoExchangeDelayMs,
         _autoExchangeOnLoot ? 1 : 0,
         _autoExchangeOnLogin ? 1 : 0,
@@ -1012,6 +1037,23 @@ std::string BotTokenExchangerMgr::ClassifyRewardRole(Player const* player, ItemT
 
     switch (player->getClass())
     {
+        case CLASS_PALADIN:
+        {
+            if (matchesAny({ "justicar", "crystalforge", "lightbringer" }))
+            {
+                // Paladin TBC tier split by suffix family:
+                // - healer: diadem/crown/greathelm, chestpiece, gloves, leggings, pauldrons/spaulders
+                // - tank: faceguard, chestguard, handguards, legguards, shoulderguards
+                // - melee: war-helm/helmet, breastplate, gauntlets, greaves, shoulderplates
+                if (auto overrideRole = classAwareOverride({ "diadem", "greathelm", "headpiece", "chestpiece", "gloves", "leggings", "pauldrons", "spaulders" }, "healer"); !overrideRole.empty())
+                    return overrideRole;
+                if (auto overrideRole = classAwareOverride({ "faceguard", "chestguard", "handguards", "legguards", "shoulderguards" }, "tank"); !overrideRole.empty())
+                    return overrideRole;
+                if (auto overrideRole = classAwareOverride({ "crown", "war-helm", "helmet", "breastplate", "gauntlets", "greaves", "shoulderplates" }, "melee_dps"); !overrideRole.empty())
+                    return overrideRole;
+            }
+            break;
+        }
         case CLASS_WARRIOR:
         {
             if (matchesAny({ "warbringer" }))
@@ -4265,6 +4307,128 @@ void BotTokenExchangerMgr::ValidateTbcTokenChainUnresolved(ChatHandler* handler)
 
         ++printed;
     }
+}
+
+void BotTokenExchangerMgr::ScheduleStartupValidationIfEnabled(uint64 nowMs)
+{
+    if (_startupValidationRan || _startupValidationScheduled || !_enabled || !_runValidationOnStartup)
+        return;
+
+    _startupValidationScheduled = true;
+    _startupValidationRunAtMs = nowMs + _startupValidationDelayMs;
+    LOG_INFO("server", "BotTokenExchanger startup validation scheduled: mode={} delay_ms={} run_at_ms={}", _startupValidationMode, _startupValidationDelayMs, _startupValidationRunAtMs);
+}
+
+void BotTokenExchangerMgr::TickStartupValidation(uint64 nowMs)
+{
+    if (_startupValidationRan || !_startupValidationScheduled)
+        return;
+
+    if (nowMs < _startupValidationRunAtMs)
+        return;
+
+    _startupValidationScheduled = false;
+    _startupValidationRan = true;
+
+    if (!_enabled || !_runValidationOnStartup)
+        return;
+
+    uint32 onlineBotCount = 0;
+    {
+        std::shared_lock<std::shared_mutex> lock(*HashMapHolder<Player>::GetLock());
+        for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+        {
+            (void)guid;
+            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+                continue;
+            ++onlineBotCount;
+        }
+    }
+
+    bool runTbc = false;
+    bool runWotlkSingle = false;
+    if (_startupValidationMode == "none")
+    {
+        LOG_INFO("server", "BotTokenExchanger startup validation skipped: mode=none.");
+        return;
+    }
+    else if (_startupValidationMode == "tbc")
+        runTbc = true;
+    else if (_startupValidationMode == "wotlk_single")
+        runWotlkSingle = true;
+    else if (_startupValidationMode == "both")
+    {
+        runTbc = true;
+        runWotlkSingle = true;
+    }
+    else
+    {
+        LOG_ERROR("server", "BotTokenExchanger startup validation skipped: invalid mode '{}'. Supported: none|tbc|wotlk_single|both", _startupValidationMode);
+        return;
+    }
+
+    LOG_INFO("server", "BotTokenExchanger startup validation begin: mode={} now_ms={} online_playerbots={}", _startupValidationMode, nowMs, onlineBotCount);
+
+    std::vector<std::string> lines;
+    lines.reserve(512);
+    CliHandler cli(&lines, &StartupValidationCliCapture);
+
+    ShowStatus(&cli);
+    if (runTbc)
+    {
+        ValidateTbcTokenChain(&cli, false);
+        ValidateTbcTokenChainUnresolved(&cli);
+    }
+
+    if (runWotlkSingle)
+        ValidateWotlkSingleTokenChain(&cli, false);
+
+    auto logLineIfUseful = [](std::string const& line)
+    {
+        return ContainsCaseInsensitive(line, "status:") ||
+            ContainsCaseInsensitive(line, "LoadedMappingCount") ||
+            ContainsCaseInsensitive(line, "LoadedWotlkMappingCount") ||
+            ContainsCaseInsensitive(line, "QueueSize") ||
+            ContainsCaseInsensitive(line, "validate complete") ||
+            ContainsCaseInsensitive(line, "unresolved diagnostic") ||
+            ContainsCaseInsensitive(line, "Missing tier/slot/class/spec/role combinations") ||
+            ContainsCaseInsensitive(line, "No online Playerbots found");
+    };
+
+    for (std::string const& line : lines)
+    {
+        if (logLineIfUseful(line))
+            LOG_INFO("server", "BotTokenExchanger startup validation: {}", line);
+    }
+
+    std::filesystem::path outputPath;
+    std::filesystem::path sourceFile(__FILE__);
+    std::filesystem::path moduleNotesPath = sourceFile.parent_path().parent_path() / "notes" / "startup-validation-progressionserver.md";
+    if (std::filesystem::exists(moduleNotesPath.parent_path()))
+        outputPath = moduleNotesPath;
+    else
+    {
+        std::string logsDir = sConfigMgr->GetOption<std::string>("LogsDir", ".");
+        outputPath = std::filesystem::path(logsDir) / "startup-validation-progressionserver.md";
+    }
+
+    std::ofstream out(outputPath, std::ios::out | std::ios::trunc);
+    if (!out.is_open())
+    {
+        LOG_ERROR("server", "BotTokenExchanger startup validation: failed to write output file at '{}'", outputPath.string());
+        return;
+    }
+
+    out << "# BotTokenExchanger Startup Validation\n";
+    out << "mode: " << _startupValidationMode << "\n";
+    out << "scheduled_delay_ms: " << _startupValidationDelayMs << "\n";
+    out << "executed_at_ms: " << nowMs << "\n";
+    out << "online_playerbots: " << onlineBotCount << "\n\n";
+    for (std::string const& line : lines)
+        out << line << '\n';
+    out.close();
+
+    LOG_INFO("server", "BotTokenExchanger startup validation wrote {} lines to {}", lines.size(), outputPath.string());
 }
 
 void BotTokenExchangerMgr::ShowStatus(ChatHandler* handler)

@@ -1,6 +1,7 @@
 #include "BotTokenExchangerMgr.h"
 
 #include "DatabaseScript.h"
+#include "GameTime.h"
 #include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -62,11 +63,13 @@ public:
     {
         LOG_INFO("server", "BotTokenExchangerWorldScript::OnStartup invoked");
         sBotTokenExchangerMgr.PreloadRuntimeCaches();
+        sBotTokenExchangerMgr.ScheduleStartupValidationIfEnabled(static_cast<uint64>(GameTime::GetGameTimeMS().count()));
     }
 
     void OnUpdate(uint32 /*diff*/) override
     {
         sBotTokenExchangerMgr.PreloadRuntimeCaches();
+        sBotTokenExchangerMgr.TickStartupValidation(static_cast<uint64>(GameTime::GetGameTimeMS().count()));
     }
 };
 

@@ -63,6 +63,23 @@ BotTokenExchanger.WotlkAutoExchangeEnable = 0
 # Default: 1
 BotTokenExchanger.WotlkTelemetryEnable = 1
 
+# Run headless validation once at startup for servers without interactive console/RA.
+# Default: 0
+BotTokenExchanger.RunValidationOnStartup = 0
+
+# Startup validation mode:
+#   none        -> disable startup validation
+#   tbc         -> status + validate tbc + validate tbc unresolved
+#   wotlk_single-> status + validate wotlk single
+#   both        -> status + tbc + wotlk_single
+# Default: "none"
+BotTokenExchanger.StartupValidationMode = "none"
+
+# Delay before startup validation executes (milliseconds).
+# Useful on headless servers where Playerbots load after world startup.
+# Default: 60000
+BotTokenExchanger.StartupValidationDelayMs = 60000
+
 # Delay before queued auto exchange is processed.
 # Default: 1500
 BotTokenExchanger.AutoExchangeDelayMs = 1500

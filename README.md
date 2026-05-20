@@ -96,6 +96,25 @@ Use `.tokenex status` to verify:
 - loaded mapping count
 - queue size
 
+## Headless Startup Validation
+
+For environments without interactive console or RA access, the module can run one-shot validation on startup:
+
+- `BotTokenExchanger.RunValidationOnStartup = 1`
+- `BotTokenExchanger.StartupValidationMode = "tbc"` (`none|tbc|wotlk_single|both`)
+- `BotTokenExchanger.StartupValidationDelayMs = 60000`
+
+Behavior:
+
+- always runs `status`
+- `tbc`/`both`: runs `validate tbc` and `validate tbc unresolved`
+- `wotlk_single`/`both`: runs `validate wotlk single`
+- validation is scheduled after startup and executes once after `StartupValidationDelayMs`
+- writes concise summary lines to `Server.log`
+- writes full captured output to `notes/startup-validation-progressionserver.md` when source notes path exists, otherwise to `LogsDir/startup-validation-progressionserver.md`
+
+This mode is disabled by default and does not change exchange/resolver behavior.
+
 ## Binary / Runtime Sanity (Required Before Validation)
 
 Validation output is not trustworthy unless the running `worldserver` matches the current build and only one process is active.
