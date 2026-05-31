@@ -32,6 +32,11 @@ BotTokenExchanger.DryRun = 0
 # Default: 1
 BotTokenExchanger.PlayerbotLootPassEnable = 1
 
+# Allow Playerbots to pass staged token rolls when they already have a strictly
+# higher item level piece equipped in the resolved reward slot.
+# Default: 0
+BotTokenExchanger.PlayerbotLootPassHigherItemLevelEnable = 0
+
 # Allow real exchange execution.
 # Default: 1
 BotTokenExchanger.ExchangeEnable = 1

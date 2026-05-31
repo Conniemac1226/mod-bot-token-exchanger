@@ -67,6 +67,7 @@ public:
     [[nodiscard]] bool WotlkDryRun() const { return _wotlkDryRun; }
     [[nodiscard]] bool WotlkAutoExchangeEnable() const { return _wotlkAutoExchangeEnable; }
     [[nodiscard]] bool PlayerbotLootPassEnable() const { return _playerbotLootPassEnable; }
+    [[nodiscard]] bool PlayerbotLootPassHigherItemLevelEnable() const { return _playerbotLootPassHigherItemLevelEnable; }
     [[nodiscard]] uint32 AutoExchangeDelayMs() const { return _autoExchangeDelayMs; }
     [[nodiscard]] bool AutoExchangeOnLoot() const { return _autoExchangeOnLoot; }
     [[nodiscard]] bool AutoExchangeOnLogin() const { return _autoExchangeOnLogin; }
@@ -182,6 +183,7 @@ private:
     bool HasRewardItemEquipped(Player* player, uint32 itemId) const;
     bool HasRewardItemInBags(Player* player, uint32 itemId) const;
     bool HasRewardItemInEquipmentOrBags(Player* player, uint32 itemId) const;
+    bool HasHigherItemLevelEquippedForReward(Player* player, ItemTemplate const* rewardTemplate, uint32& equippedItemId, uint32& equippedItemLevel) const;
     bool HasStagedResolverEntries(uint32 tokenItemId) const;
     void ExchangePlayerTokens(Player* player, char const* label, uint32 maxPerBotPerPass = 0, class ChatHandler* handler = nullptr);
     void ExchangeWotlkPlayerTokens(Player* player, char const* label, class ChatHandler* handler = nullptr, uint32 maxPerBotPerPass = 0);
@@ -229,6 +231,7 @@ private:
     bool _exchangeEnable = false;
     bool _allowDebugTargetCommand = false;
     bool _playerbotLootPassEnable = false;
+    bool _playerbotLootPassHigherItemLevelEnable = false;
     bool _autoExchangeEnable = false;
     bool _wotlkExchangeEnable = false;
     bool _wotlkDryRun = true;

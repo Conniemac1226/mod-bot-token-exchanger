@@ -186,6 +186,34 @@ namespace
         }
     }
 
+    int8 RewardInventoryTypeToEquipmentSlot(uint32 inventoryType)
+    {
+        switch (inventoryType)
+        {
+            case INVTYPE_HEAD:
+                return EQUIPMENT_SLOT_HEAD;
+            case INVTYPE_SHOULDERS:
+                return EQUIPMENT_SLOT_SHOULDERS;
+            case INVTYPE_CHEST:
+            case INVTYPE_ROBE:
+                return EQUIPMENT_SLOT_CHEST;
+            case INVTYPE_HANDS:
+                return EQUIPMENT_SLOT_HANDS;
+            case INVTYPE_LEGS:
+                return EQUIPMENT_SLOT_LEGS;
+            case INVTYPE_FEET:
+                return EQUIPMENT_SLOT_FEET;
+            case INVTYPE_WRISTS:
+                return EQUIPMENT_SLOT_WRISTS;
+            case INVTYPE_WAIST:
+                return EQUIPMENT_SLOT_WAIST;
+            default:
+                break;
+        }
+
+        return -1;
+    }
+
     void StartupValidationCliCapture(void* arg, std::string_view text)
     {
         if (!arg)
@@ -222,6 +250,7 @@ void BotTokenExchangerMgr::LoadConfig()
     _exchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.ExchangeEnable", false);
     _allowDebugTargetCommand = sConfigMgr->GetOption<bool>("BotTokenExchanger.AllowDebugTargetCommand", false);
     _playerbotLootPassEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.PlayerbotLootPassEnable", false);
+    _playerbotLootPassHigherItemLevelEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.PlayerbotLootPassHigherItemLevelEnable", false);
     _autoExchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeEnable", false);
     _wotlkExchangeEnable = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkExchangeEnable", false);
     _wotlkDryRun = sConfigMgr->GetOption<bool>("BotTokenExchanger.WotlkDryRun", true);
@@ -240,7 +269,7 @@ void BotTokenExchangerMgr::LoadConfig()
 
     LOG_INFO(
         "server",
-        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} RunValidationOnStartup={} StartupValidationMode={} StartupValidationDelayMs={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
+        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} PlayerbotLootPassHigherItemLevelEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} RunValidationOnStartup={} StartupValidationMode={} StartupValidationDelayMs={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
         _enabled ? 1 : 0,
         _debug ? 1 : 0,
         _onlyPlayerbots ? 1 : 0,
@@ -251,6 +280,7 @@ void BotTokenExchangerMgr::LoadConfig()
         _exchangeEnable ? 1 : 0,
         _allowDebugTargetCommand ? 1 : 0,
         _playerbotLootPassEnable ? 1 : 0,
+        _playerbotLootPassHigherItemLevelEnable ? 1 : 0,
         _autoExchangeEnable ? 1 : 0,
         _wotlkExchangeEnable ? 1 : 0,
         _wotlkDryRun ? 1 : 0,
@@ -2702,6 +2732,34 @@ bool BotTokenExchangerMgr::HasRewardItemInEquipmentOrBags(Player* player, uint32
     return HasRewardItemEquipped(player, itemId) || HasRewardItemInBags(player, itemId);
 }
 
+bool BotTokenExchangerMgr::HasHigherItemLevelEquippedForReward(Player* player, ItemTemplate const* rewardTemplate, uint32& equippedItemId, uint32& equippedItemLevel) const
+{
+    equippedItemId = 0;
+    equippedItemLevel = 0;
+
+    if (!player || !rewardTemplate)
+        return false;
+
+    int8 const equipmentSlot = RewardInventoryTypeToEquipmentSlot(rewardTemplate->InventoryType);
+    if (equipmentSlot < 0)
+        return false;
+
+    Item* equippedItem = player->GetItemByPos(INVENTORY_SLOT_BAG_0, static_cast<uint8>(equipmentSlot));
+    if (!equippedItem)
+        return false;
+
+    ItemTemplate const* equippedTemplate = equippedItem->GetTemplate();
+    if (!equippedTemplate)
+        return false;
+
+    if (equippedTemplate->ItemLevel <= rewardTemplate->ItemLevel)
+        return false;
+
+    equippedItemId = equippedTemplate->ItemId;
+    equippedItemLevel = equippedTemplate->ItemLevel;
+    return true;
+}
+
 bool BotTokenExchangerMgr::TryResolveUniqueCandidate(Player* player, uint32 tokenItemId, FilteredCandidate& resolvedCandidate) const
 {
     resolvedCandidate = {};
@@ -2777,12 +2835,17 @@ bool BotTokenExchangerMgr::HandlePlayerbotBeforeLootRoll(Player* bot, ItemTempla
 
     bool const equipped = HasRewardItemEquipped(bot, resolvedCandidate.rewardTemplate->ItemId);
     bool const inBags = HasRewardItemInBags(bot, resolvedCandidate.rewardTemplate->ItemId);
+    uint32 higherItemId = 0;
+    uint32 higherItemLevel = 0;
+    bool const higherItemLevelEquipped = (!equipped && !inBags && _playerbotLootPassHigherItemLevelEnable) &&
+        HasHigherItemLevelEquippedForReward(bot, resolvedCandidate.rewardTemplate, higherItemId, higherItemLevel);
+    bool const shouldPass = equipped || inBags || higherItemLevelEquipped;
 
     if (_debug)
     {
         LOG_DEBUG(
             "bot_token_exchanger",
-            "loot-pass debug bot {} faction {} class {} spec {} role {} token {} ({}) vote {} resolved reward {} ({}) equipped={} bags={} final {}",
+            "loot-pass debug bot {} faction {} class {} spec {} role {} token {} ({}) vote {} resolved reward {} ({}) reward_ilvl={} equipped={} bags={} higher_ilvl_equipped={} higher_item_id={} higher_item_ilvl={} final {}",
             bot->GetName(),
             GetTeamLabel(GetTeamIdForFiltering(bot)),
             bot->getClass(),
@@ -2793,26 +2856,49 @@ bool BotTokenExchangerMgr::HandlePlayerbotBeforeLootRoll(Player* bot, ItemTempla
             RollVoteToString(originalVote),
             resolvedCandidate.rewardTemplate->ItemId,
             resolvedCandidate.rewardTemplate->Name1,
+            resolvedCandidate.rewardTemplate->ItemLevel,
             equipped ? "true" : "false",
             inBags ? "true" : "false",
-            (equipped || inBags) ? "PASS" : RollVoteToString(originalVote));
+            higherItemLevelEquipped ? "true" : "false",
+            higherItemId,
+            higherItemLevel,
+            shouldPass ? "PASS" : RollVoteToString(originalVote));
     }
 
-    if (!equipped && !inBags)
+    if (!shouldPass)
         return false;
 
     if (rollVote == PASS)
         return false;
 
     rollVote = PASS;
-    LOG_INFO(
-        "bot_token_exchanger",
-        "loot-pass forced PASS for bot {} token {} ({}) resolved reward {} ({}) already owned",
-        bot->GetName(),
-        itemTemplate->ItemId,
-        itemTemplate->Name1,
-        resolvedCandidate.rewardTemplate->ItemId,
-        resolvedCandidate.rewardTemplate->Name1);
+    if (equipped || inBags)
+    {
+        LOG_INFO(
+            "server",
+            "BotTokenExchanger loot-pass forced PASS for bot {} token {} ({}) resolved reward {} ({}) reason=already_owned",
+            bot->GetName(),
+            itemTemplate->ItemId,
+            itemTemplate->Name1,
+            resolvedCandidate.rewardTemplate->ItemId,
+            resolvedCandidate.rewardTemplate->Name1);
+    }
+    else
+    {
+        ItemTemplate const* higherTemplate = sObjectMgr->GetItemTemplate(higherItemId);
+        LOG_INFO(
+            "server",
+            "BotTokenExchanger loot-pass forced PASS for bot {} token {} ({}) resolved reward {} ({}) reason=higher_ilvl_equipped equipped_item={} ({}) equipped_ilvl={} reward_ilvl={}",
+            bot->GetName(),
+            itemTemplate->ItemId,
+            itemTemplate->Name1,
+            resolvedCandidate.rewardTemplate->ItemId,
+            resolvedCandidate.rewardTemplate->Name1,
+            higherItemId,
+            higherTemplate ? higherTemplate->Name1 : "unknown",
+            higherItemLevel,
+            resolvedCandidate.rewardTemplate->ItemLevel);
+    }
     return true;
 }
 
@@ -4447,6 +4533,7 @@ void BotTokenExchangerMgr::ShowStatus(ChatHandler* handler)
     handler->PSendSysMessage("  WotlkTelemetryEnable: {}", _wotlkTelemetryEnable ? 1 : 0);
     handler->PSendSysMessage("  AllowDebugTargetCommand: {}", _allowDebugTargetCommand ? 1 : 0);
     handler->PSendSysMessage("  PlayerbotLootPassEnable: {}", _playerbotLootPassEnable ? 1 : 0);
+    handler->PSendSysMessage("  PlayerbotLootPassHigherItemLevelEnable: {}", _playerbotLootPassHigherItemLevelEnable ? 1 : 0);
     handler->PSendSysMessage("  LoadedMappingCount: {}", GetLoadedResolverMappingCount());
     handler->PSendSysMessage("  LoadedWotlkMappingCount: {}", GetLoadedWotlkResolverMappingCount());
     handler->PSendSysMessage("  WotlkSingleTokenChainCount: {}", GetLoadedWotlkTokenKeyCount());
