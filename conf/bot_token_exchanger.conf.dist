@@ -20,7 +20,8 @@ BotTokenExchanger.DiscoveryWriteDb = 0
 # Default: 1
 BotTokenExchanger.AutoPopulateMappings = 1
 
-# Resolve staged token rewards without exchanging items.
+# Safety gate: when enabled, resolver/exchange commands and auto exchange only
+# report what would happen and never mutate inventories.
 # Default: 1
 BotTokenExchanger.ResolveOnly = 1
 
@@ -88,6 +89,10 @@ BotTokenExchanger.StartupValidationDelayMs = 60000
 # Delay before queued auto exchange is processed.
 # Default: 1500
 BotTokenExchanger.AutoExchangeDelayMs = 1500
+
+# Delay before retrying a queued token after a retryable failure such as a full bag.
+# Default: 30000
+BotTokenExchanger.AutoExchangeRetryDelayMs = 30000
 
 # Queue auto exchange when a staged token is stored on loot/item receipt.
 # Default: 1

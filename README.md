@@ -21,7 +21,7 @@ Use these defaults for live service:
 - `BotTokenExchanger.OnlyPlayerbots = 1`
 - `BotTokenExchanger.DiscoveryWriteDb = 0`
 - `BotTokenExchanger.AutoPopulateMappings = 1` (first-startup staging bootstrap)
-- `BotTokenExchanger.ResolveOnly = 1`
+- `BotTokenExchanger.ResolveOnly = 0` for real exchange service (use `1` for read-only validation)
 - `BotTokenExchanger.DryRun = 0`
 - `BotTokenExchanger.ExchangeEnable = 1`
 - `BotTokenExchanger.AutoExchangeEnable = 1`
@@ -29,6 +29,7 @@ Use these defaults for live service:
 - `BotTokenExchanger.AllowDebugTargetCommand = 0`
 - `BotTokenExchanger.ExchangeDelayMs = 1000`
 - `BotTokenExchanger.AutoExchangeDelayMs = 1500`
+- `BotTokenExchanger.AutoExchangeRetryDelayMs = 30000`
 - `BotTokenExchanger.AutoExchangeOnLoot = 1`
 - `BotTokenExchanger.AutoExchangeOnLogin = 0`
 - `BotTokenExchanger.AutoExchangeMaxPerBotPerPass = 1`
@@ -39,6 +40,7 @@ Use these defaults for live service:
 If anything looks unsafe, set:
 
 - `BotTokenExchanger.DryRun = 1`
+- `BotTokenExchanger.ResolveOnly = 1`
 - `BotTokenExchanger.ExchangeEnable = 0`
 - `BotTokenExchanger.AutoExchangeEnable = 0`
 - `BotTokenExchanger.PlayerbotLootPassEnable = 0`
@@ -119,27 +121,35 @@ This mode is disabled by default and does not change exchange/resolver behavior.
 
 Validation output is not trustworthy unless the running `worldserver` matches the current build and only one process is active.
 
+This checkout uses `/home/cbur/azerothcore-progression/build`; do not create or use a separate `build-progression` directory.
+
 Use:
 
 ```bash
-cd /home/cbur/azerothcore-wotlk
-scripts/verify-live-binary.sh
+cd /home/cbur/azerothcore-progression
+cmake --build build --target worldserver -j"$(nproc)"
+cmake --install build
 ```
 
-The check fails if:
+Before validation, manually confirm:
 
-- more than one `worldserver` process is running
-- build and installed `worldserver` SHA256 hashes differ
+- only one `/home/cbur/azeroth-progression-server/bin/worldserver` process is running
+- the build and installed binaries report the same ELF Build ID:
+
+```bash
+pgrep -af '/home/cbur/azeroth-progression-server/bin/worldserver'
+readelf -n build/src/server/apps/worldserver | rg 'Build ID'
+readelf -n /home/cbur/azeroth-progression-server/bin/worldserver | rg 'Build ID'
+```
 
 For clean validation runs:
 
 ```bash
-cd /home/cbur/azerothcore-wotlk
-pkill -f '/home/cbur/azeroth-server/bin/worldserver' || true
+cd /home/cbur/azerothcore-progression
+pkill -f '/home/cbur/azeroth-progression-server/bin/worldserver' || true
 cmake --build build --target worldserver -j"$(nproc)"
 cmake --install build
-scripts/verify-live-binary.sh
-/home/cbur/azeroth-server/bin/worldserver
+/home/cbur/azeroth-progression-server/bin/worldserver
 ```
 
 Run `.tokenex validate ...` only after the sanity check passes.

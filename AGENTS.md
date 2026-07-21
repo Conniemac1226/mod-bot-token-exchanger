@@ -41,10 +41,9 @@
 
 ## Build / Install / Runtime Sanity
 ```bash
-cd /home/cbur/azerothcore-wotlk
+cd /home/cbur/azerothcore-progression
 cmake --build build --target worldserver -j"$(nproc)"
 cmake --install build
-scripts/verify-live-binary.sh
 ```
 
 ## Known Risks

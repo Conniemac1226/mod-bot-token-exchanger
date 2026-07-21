@@ -263,13 +263,14 @@ void BotTokenExchangerMgr::LoadConfig()
     _startupValidationScheduled = false;
     _startupValidationRunAtMs = 0;
     _autoExchangeDelayMs = sConfigMgr->GetOption<uint32>("BotTokenExchanger.AutoExchangeDelayMs", 1500);
+    _autoExchangeRetryDelayMs = sConfigMgr->GetOption<uint32>("BotTokenExchanger.AutoExchangeRetryDelayMs", 30000);
     _autoExchangeOnLoot = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeOnLoot", true);
     _autoExchangeOnLogin = sConfigMgr->GetOption<bool>("BotTokenExchanger.AutoExchangeOnLogin", false);
     _autoExchangeMaxPerBotPerPass = sConfigMgr->GetOption<uint32>("BotTokenExchanger.AutoExchangeMaxPerBotPerPass", 1);
 
     LOG_INFO(
         "server",
-        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} PlayerbotLootPassHigherItemLevelEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} RunValidationOnStartup={} StartupValidationMode={} StartupValidationDelayMs={} AutoExchangeDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
+        "BotTokenExchanger config loaded: Enable={} Debug={} OnlyPlayerbots={} DiscoveryWriteDb={} AutoPopulateMappings={} ResolveOnly={} DryRun={} ExchangeEnable={} AllowDebugTargetCommand={} PlayerbotLootPassEnable={} PlayerbotLootPassHigherItemLevelEnable={} AutoExchangeEnable={} WotlkExchangeEnable={} WotlkDryRun={} WotlkAutoExchangeEnable={} WotlkTelemetryEnable={} RunValidationOnStartup={} StartupValidationMode={} StartupValidationDelayMs={} AutoExchangeDelayMs={} AutoExchangeRetryDelayMs={} AutoExchangeOnLoot={} AutoExchangeOnLogin={} AutoExchangeMaxPerBotPerPass={}",
         _enabled ? 1 : 0,
         _debug ? 1 : 0,
         _onlyPlayerbots ? 1 : 0,
@@ -290,6 +291,7 @@ void BotTokenExchangerMgr::LoadConfig()
         _startupValidationMode,
         _startupValidationDelayMs,
         _autoExchangeDelayMs,
+        _autoExchangeRetryDelayMs,
         _autoExchangeOnLoot ? 1 : 0,
         _autoExchangeOnLogin ? 1 : 0,
         _autoExchangeMaxPerBotPerPass);
@@ -344,9 +346,6 @@ void BotTokenExchangerMgr::HandlePlayerStoreNewItem(Player* player, Item* item, 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
         return;
 
-    if (_exchangeActive)
-        return;
-
     ItemTemplate const* proto = item->GetTemplate();
     if (!proto)
     {
@@ -387,9 +386,6 @@ void BotTokenExchangerMgr::HandlePlayerLogin(Player* player)
         PreloadRuntimeCaches();
 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
-        return;
-
-    if (_exchangeActive)
         return;
 
     if (_autoExchangeEnable && _autoExchangeOnLogin)
@@ -436,15 +432,12 @@ bool BotTokenExchangerMgr::IsKnownWotlkNarrowVendor(uint32 vendorEntry)
     return std::find(kKnownWotlkNarrowVendors.begin(), kKnownWotlkNarrowVendors.end(), vendorEntry) != kKnownWotlkNarrowVendors.end();
 }
 
-void BotTokenExchangerMgr::QueueAutoExchange(Player* player, uint32 tokenItemId, bool queueAllStagedTokens, bool logWhenEmpty, char const* reason)
+void BotTokenExchangerMgr::QueueAutoExchange(Player* player, uint32 tokenItemId, bool queueAllStagedTokens, bool logWhenEmpty, char const* reason, uint32 delayMs)
 {
-    if (!_autoExchangeEnable || !player || !player->GetSession())
+    if (!_autoExchangeEnable || !_exchangeEnable || _dryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
-        return;
-
-    if (_exchangeActive)
         return;
 
     LoadResolverMappings();
@@ -492,7 +485,8 @@ void BotTokenExchangerMgr::QueueAutoExchange(Player* player, uint32 tokenItemId,
     }
 
     uint64 const nowMs = GameTime::GetGameTimeMS().count();
-    uint64 const dueMs = nowMs + _autoExchangeDelayMs;
+    uint32 const effectiveDelayMs = delayMs != 0 ? delayMs : _autoExchangeDelayMs;
+    uint64 const dueMs = nowMs + effectiveDelayMs;
 
     AutoExchangeQueueEntry& entry = _autoExchangeQueueByBotGuid[botGuid];
     if (entry.botGuid == 0)
@@ -519,15 +513,12 @@ void BotTokenExchangerMgr::QueueAutoExchange(Player* player, uint32 tokenItemId,
         entry.scheduledTimeMs);
 }
 
-void BotTokenExchangerMgr::QueueWotlkAutoExchange(Player* player, uint32 tokenItemId, bool queueAllStagedTokens, bool logWhenEmpty, char const* reason)
+void BotTokenExchangerMgr::QueueWotlkAutoExchange(Player* player, uint32 tokenItemId, bool queueAllStagedTokens, bool logWhenEmpty, char const* reason, uint32 delayMs)
 {
-    if (!_wotlkAutoExchangeEnable || !player || !player->GetSession())
+    if (!_wotlkAutoExchangeEnable || !_wotlkExchangeEnable || _wotlkDryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
-        return;
-
-    if (_exchangeActive)
         return;
 
     LoadWotlkResolverMappings();
@@ -562,7 +553,8 @@ void BotTokenExchangerMgr::QueueWotlkAutoExchange(Player* player, uint32 tokenIt
     }
 
     uint64 const nowMs = GameTime::GetGameTimeMS().count();
-    uint64 const dueMs = nowMs + _autoExchangeDelayMs;
+    uint32 const effectiveDelayMs = delayMs != 0 ? delayMs : _autoExchangeDelayMs;
+    uint64 const dueMs = nowMs + effectiveDelayMs;
 
     AutoExchangeQueueEntry& entry = _wotlkAutoExchangeQueueByBotGuid[botGuid];
     if (entry.botGuid == 0)
@@ -576,7 +568,7 @@ void BotTokenExchangerMgr::QueueWotlkAutoExchange(Player* player, uint32 tokenIt
 
 void BotTokenExchangerMgr::ProcessAutoExchangeQueue(Player* player)
 {
-    if (!_autoExchangeEnable || !player || !player->GetSession())
+    if (!_autoExchangeEnable || !_exchangeEnable || _dryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
@@ -617,12 +609,18 @@ void BotTokenExchangerMgr::ProcessAutoExchangeQueue(Player* player)
         botGuid,
         entry.tokenItemIds.size());
 
-    ExchangePlayerTokens(player, "auto", _autoExchangeMaxPerBotPerPass, nullptr);
+    ExchangePlayerTokens(player, "auto", _autoExchangeMaxPerBotPerPass, nullptr, &entry.tokenItemIds);
+
+    for (uint32 tokenItemId : entry.tokenItemIds)
+    {
+        if (CanRetryAutoExchangeToken(player, tokenItemId))
+            QueueAutoExchange(player, tokenItemId, false, false, "retry", _autoExchangeRetryDelayMs);
+    }
 }
 
 void BotTokenExchangerMgr::ProcessWotlkAutoExchangeQueue(Player* player)
 {
-    if (!_wotlkAutoExchangeEnable || !player || !player->GetSession())
+    if (!_wotlkAutoExchangeEnable || !_wotlkExchangeEnable || _wotlkDryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
     if (_onlyPlayerbots && !player->GetSession()->IsBot())
@@ -650,7 +648,75 @@ void BotTokenExchangerMgr::ProcessWotlkAutoExchangeQueue(Player* player)
     }
 
     LOG_INFO("bot_token_exchanger", "WOTLK auto processing bot {} guid {} with {} staged single-token-chain token ids.", player->GetName(), botGuid, entry.tokenItemIds.size());
-    ExchangeWotlkPlayerTokens(player, "auto-wotlk", nullptr, 1);
+    ExchangeWotlkPlayerTokens(player, "auto-wotlk", nullptr, 1, &entry.tokenItemIds);
+
+    for (uint32 tokenItemId : entry.tokenItemIds)
+    {
+        if (CanRetryWotlkAutoExchangeToken(player, tokenItemId))
+            QueueWotlkAutoExchange(player, tokenItemId, false, false, "retry", _autoExchangeRetryDelayMs);
+    }
+}
+
+bool BotTokenExchangerMgr::CanRetryAutoExchangeToken(Player* player, uint32 tokenItemId)
+{
+    if (!player || !player->GetSession() || player->GetItemCount(tokenItemId, false) == 0)
+        return false;
+
+    std::vector<ResolverEntry> const* entries = GetResolverEntriesCached(tokenItemId);
+    if (!entries || entries->empty())
+        return false;
+
+    std::vector<FilteredCandidate> filtered;
+    std::vector<std::string> skipReasons;
+    std::vector<std::string> notes;
+    if (!BuildFilteredCandidatesFromEntries(player, tokenItemId, *entries, filtered, skipReasons, notes) || filtered.empty())
+        return false;
+
+    RoleResolution roleResolution = GetRoleResolution(player);
+    std::vector<FilteredCandidate> hybridFiltered;
+    std::vector<std::string> hybridNotes;
+    std::vector<std::string> hybridSkips;
+    if (!BuildHybridCandidates(player, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution))
+        return false;
+
+    if (!hybridFiltered.empty())
+        filtered = std::move(hybridFiltered);
+
+    if (filtered.size() != 1)
+        return false;
+
+    return !HasRewardItemInEquipmentOrBags(player, filtered.front().rewardTemplate->ItemId);
+}
+
+bool BotTokenExchangerMgr::CanRetryWotlkAutoExchangeToken(Player* player, uint32 tokenItemId)
+{
+    if (!player || !player->GetSession() || player->GetItemCount(tokenItemId, false) == 0)
+        return false;
+
+    std::vector<ResolverEntry> const* entries = GetWotlkResolverEntriesCached(tokenItemId);
+    if (!entries || entries->empty())
+        return false;
+
+    std::vector<FilteredCandidate> filtered;
+    std::vector<std::string> skipReasons;
+    std::vector<std::string> notes;
+    if (!BuildFilteredCandidatesFromEntries(player, tokenItemId, *entries, filtered, skipReasons, notes) || filtered.empty())
+        return false;
+
+    RoleResolution roleResolution = GetRoleResolution(player);
+    std::vector<FilteredCandidate> hybridFiltered;
+    std::vector<std::string> hybridNotes;
+    std::vector<std::string> hybridSkips;
+    if (!BuildWotlkHybridCandidates(player, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution))
+        return false;
+
+    if (!hybridFiltered.empty())
+        filtered = std::move(hybridFiltered);
+
+    if (filtered.size() != 1)
+        return false;
+
+    return !HasRewardItemInEquipmentOrBags(player, filtered.front().rewardTemplate->ItemId);
 }
 
 bool BotTokenExchangerMgr::IsTierTokenCandidate(ItemTemplate const* item)
@@ -1628,12 +1694,20 @@ BotTokenExchangerMgr::RoleResolution BotTokenExchangerMgr::GetRoleResolution(Pla
     if (classId == CLASS_PALADIN)
     {
         if (specTab == PALADIN_TAB_HOLY)
+        {
             resolution.detectedRole = "healer";
+            resolution.detectedReliable = true;
+        }
         else if (specTab == PALADIN_TAB_PROTECTION)
+        {
             resolution.detectedRole = "tank";
+            resolution.detectedReliable = true;
+        }
         else if (specTab == PALADIN_TAB_RETRIBUTION)
+        {
             resolution.detectedRole = "melee_dps";
-        resolution.detectedReliable = true;
+            resolution.detectedReliable = true;
+        }
     }
     else if (classId == CLASS_DRUID)
     {
@@ -1659,12 +1733,20 @@ BotTokenExchangerMgr::RoleResolution BotTokenExchangerMgr::GetRoleResolution(Pla
     else if (classId == CLASS_SHAMAN)
     {
         if (specTab == SHAMAN_TAB_RESTORATION)
+        {
             resolution.detectedRole = "healer";
+            resolution.detectedReliable = true;
+        }
         else if (specTab == SHAMAN_TAB_ENHANCEMENT)
+        {
             resolution.detectedRole = "melee_dps";
-        else
+            resolution.detectedReliable = true;
+        }
+        else if (ContainsCaseInsensitive(resolution.detectedSpec, "elem") || ContainsCaseInsensitive(resolution.detectedSpec, "elemental"))
+        {
             resolution.detectedRole = "caster_dps";
-        resolution.detectedReliable = true;
+            resolution.detectedReliable = true;
+        }
     }
     else
     {
@@ -1697,12 +1779,20 @@ BotTokenExchangerMgr::RoleResolution BotTokenExchangerMgr::GetLootPassRoleResolu
     if (classId == CLASS_PALADIN)
     {
         if (specTab == PALADIN_TAB_HOLY)
+        {
             resolution.detectedRole = "healer";
+            resolution.detectedReliable = true;
+        }
         else if (specTab == PALADIN_TAB_PROTECTION)
+        {
             resolution.detectedRole = "tank";
+            resolution.detectedReliable = true;
+        }
         else if (specTab == PALADIN_TAB_RETRIBUTION)
+        {
             resolution.detectedRole = "melee_dps";
-        resolution.detectedReliable = true;
+            resolution.detectedReliable = true;
+        }
     }
     else if (classId == CLASS_DRUID)
     {
@@ -1728,17 +1818,32 @@ BotTokenExchangerMgr::RoleResolution BotTokenExchangerMgr::GetLootPassRoleResolu
     else if (classId == CLASS_SHAMAN)
     {
         if (specTab == SHAMAN_TAB_RESTORATION)
+        {
             resolution.detectedRole = "healer";
+            resolution.detectedReliable = true;
+        }
         else if (specTab == SHAMAN_TAB_ENHANCEMENT)
+        {
             resolution.detectedRole = "melee_dps";
-        else
+            resolution.detectedReliable = true;
+        }
+        else if (ContainsCaseInsensitive(resolution.detectedSpec, "elem") || ContainsCaseInsensitive(resolution.detectedSpec, "elemental"))
+        {
             resolution.detectedRole = "caster_dps";
-        resolution.detectedReliable = true;
+            resolution.detectedReliable = true;
+        }
     }
     else
     {
         resolution.detectedRole = RoleFromBotRoles(classId, roles);
         resolution.detectedReliable = !resolution.detectedRole.empty();
+    }
+
+    auto itr = _preferenceByBotGuid.find(player->GetGUID().GetCounter());
+    if (itr != _preferenceByBotGuid.end())
+    {
+        resolution.manualConfigured = true;
+        resolution.manualRole = itr->second.manualRole;
     }
 
     return resolution;
@@ -2797,6 +2902,54 @@ bool BotTokenExchangerMgr::TryResolveUniqueCandidate(Player* player, uint32 toke
     return true;
 }
 
+bool BotTokenExchangerMgr::AreAllLootCandidatesUnneeded(Player* player, uint32 tokenItemId) const
+{
+    if (!player)
+        return false;
+
+    std::vector<ResolverEntry> const* entries = GetResolverEntriesCached(tokenItemId);
+    if (!entries || entries->empty())
+        return false;
+
+    std::vector<FilteredCandidate> filtered;
+    std::vector<std::string> skipReasons;
+    std::vector<std::string> notes;
+    if (!BuildFilteredCandidatesFromEntries(player, tokenItemId, *entries, filtered, skipReasons, notes) || filtered.empty())
+        return false;
+
+    RoleResolution roleResolution = GetLootPassRoleResolution(player);
+    std::vector<FilteredCandidate> hybridFiltered;
+    std::vector<std::string> hybridNotes;
+    std::vector<std::string> hybridSkips;
+    if (!BuildHybridCandidates(player, filtered, hybridFiltered, hybridNotes, hybridSkips, roleResolution))
+        return false;
+
+    if (!hybridFiltered.empty())
+        filtered = std::move(hybridFiltered);
+
+    if (filtered.empty())
+        return false;
+
+    for (FilteredCandidate const& candidate : filtered)
+    {
+        if (!candidate.rewardTemplate)
+            return false;
+
+        if (HasRewardItemInEquipmentOrBags(player, candidate.rewardTemplate->ItemId))
+            continue;
+
+        uint32 higherItemId = 0;
+        uint32 higherItemLevel = 0;
+        if (!_playerbotLootPassHigherItemLevelEnable ||
+            !HasHigherItemLevelEquippedForReward(player, candidate.rewardTemplate, higherItemId, higherItemLevel))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool BotTokenExchangerMgr::HandlePlayerbotBeforeLootRoll(Player* bot, ItemTemplate const* itemTemplate, RollVote& rollVote)
 {
     if (!_enabled || !_playerbotLootPassEnable || !bot || !itemTemplate)
@@ -2813,6 +2966,21 @@ bool BotTokenExchangerMgr::HandlePlayerbotBeforeLootRoll(Player* bot, ItemTempla
     FilteredCandidate resolvedCandidate;
     if (!TryResolveUniqueCandidate(bot, itemTemplate->ItemId, resolvedCandidate))
     {
+        if (AreAllLootCandidatesUnneeded(bot, itemTemplate->ItemId))
+        {
+            if (rollVote == PASS)
+                return false;
+
+            rollVote = PASS;
+            LOG_INFO(
+                "server",
+                "BotTokenExchanger loot-pass forced PASS for bot {} token {} ({}) reason=all_candidates_unneeded",
+                bot->GetName(),
+                itemTemplate->ItemId,
+                itemTemplate->Name1);
+            return true;
+        }
+
         if (_debug)
         {
             LOG_DEBUG(
@@ -4538,6 +4706,7 @@ void BotTokenExchangerMgr::ShowStatus(ChatHandler* handler)
     handler->PSendSysMessage("  LoadedWotlkMappingCount: {}", GetLoadedWotlkResolverMappingCount());
     handler->PSendSysMessage("  WotlkSingleTokenChainCount: {}", GetLoadedWotlkTokenKeyCount());
     handler->PSendSysMessage("  QueueSize: {}", GetAutoExchangeQueueSize());
+    handler->PSendSysMessage("  AutoExchangeRetryDelayMs: {}", _autoExchangeRetryDelayMs);
     handler->PSendSysMessage("  DiscoveryWriteDb: {}", _discoveryWriteDb ? 1 : 0);
     handler->PSendSysMessage("  AutoPopulateMappings: {}", _autoPopulateMappings ? 1 : 0);
     handler->PSendSysMessage("  ResolveOnly: {}", _resolveOnly ? 1 : 0);
@@ -4580,7 +4749,7 @@ void BotTokenExchangerMgr::ShowBotRole(ChatHandler* handler, std::string const& 
     DescribeRoleResolution(handler, player);
 }
 
-void BotTokenExchangerMgr::ExchangePlayerTokens(Player* player, char const* label, uint32 maxPerBotPerPass, ChatHandler* handler)
+void BotTokenExchangerMgr::ExchangePlayerTokens(Player* player, char const* label, uint32 maxPerBotPerPass, ChatHandler* handler, std::unordered_set<uint32> const* tokenFilter)
 {
     if (!player)
         return;
@@ -4620,12 +4789,15 @@ void BotTokenExchangerMgr::ExchangePlayerTokens(Player* player, char const* labe
     std::unordered_map<uint32, uint32> stagedTokenCounts;
     for (auto const& [tokenItemId, count] : tokenCounts)
     {
+        if (tokenFilter && tokenFilter->find(tokenItemId) == tokenFilter->end())
+            continue;
+
         std::vector<ResolverEntry> const* entries = GetResolverEntries(tokenItemId);
         if (entries && !entries->empty())
             stagedTokenCounts[tokenItemId] = count;
     }
 
-    bool const allowRealExchange = _exchangeEnable && !_dryRun;
+    bool const allowRealExchange = _exchangeEnable && !_dryRun && !_resolveOnly;
     bool const dryRun = !allowRealExchange;
 
     if (stagedTokenCounts.empty())
@@ -4799,6 +4971,20 @@ void BotTokenExchangerMgr::ExchangePlayerTokens(Player* player, char const* labe
 
         for (uint32 i = 0; i < tokenCount; ++i)
         {
+            if (HasRewardItemInEquipmentOrBags(player, rewardTemplate->ItemId))
+            {
+                ++skippedCount;
+                std::string message = Acore::StringFormat(
+                    "skip token {} ({}): reward {} ({}) already owned/equipped",
+                    tokenItemId,
+                    tokenTemplate->Name1,
+                    rewardTemplate->ItemId,
+                    rewardTemplate->Name1);
+                LOG_INFO("bot_token_exchanger", "{}", message);
+                LOG_INFO("server", "BotTokenExchanger auto bot {} {}", player->GetName(), message);
+                break;
+            }
+
             std::string transactionLog;
             bool const success = TryExchangeToken(player, entry, tokenTemplate, rewardTemplate, dryRun, transactionLog);
             LOG_INFO("bot_token_exchanger", "{}", transactionLog);
@@ -4848,7 +5034,7 @@ void BotTokenExchangerMgr::ExchangePlayerTokens(Player* player, char const* labe
         dryRun ? "dry-run" : "real exchange");
 }
 
-void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const* label, ChatHandler* handler, uint32 maxPerBotPerPass)
+void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const* label, ChatHandler* handler, uint32 maxPerBotPerPass, std::unordered_set<uint32> const* tokenFilter)
 {
     if (!player)
         return;
@@ -4890,6 +5076,9 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
     std::unordered_map<uint32, uint32> stagedTokenCounts;
     for (auto const& [tokenItemId, count] : tokenCounts)
     {
+        if (tokenFilter && tokenFilter->find(tokenItemId) == tokenFilter->end())
+            continue;
+
         std::vector<ResolverEntry> const* entries = GetWotlkResolverEntries(tokenItemId);
         if (entries && !entries->empty())
             stagedTokenCounts[tokenItemId] = count;
@@ -4907,10 +5096,11 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         label,
         player->GetName(),
         stagedTokenCounts.size(),
-        _wotlkDryRun ? "dry-run" : "real exchange");
+        (_wotlkDryRun || _resolveOnly) ? "dry-run" : "real exchange");
 
     uint32 resolvedCount = 0;
     uint32 skippedCount = 0;
+    bool const dryRun = _wotlkDryRun || _resolveOnly;
     for (auto const& [tokenItemId, tokenCount] : stagedTokenCounts)
     {
         ItemTemplate const* tokenTemplate = sObjectMgr->GetItemTemplate(tokenItemId);
@@ -4934,7 +5124,7 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         std::vector<FilteredCandidate> filtered;
         std::vector<std::string> skipReasons;
         std::vector<std::string> notes;
-        if (!BuildFilteredCandidatesFromEntriesForWotlkReadOnly(player, tokenItemId, *entries, filtered, skipReasons, notes))
+        if (!BuildFilteredCandidatesFromEntries(player, tokenItemId, *entries, filtered, skipReasons, notes))
         {
             ++skippedCount;
             MaybeLogWotlkUnresolvedTelemetry(
@@ -5054,13 +5244,33 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
 
         for (uint32 i = 0; i < tokenCount; ++i)
         {
+            if (HasRewardItemInEquipmentOrBags(player, rewardTemplate->ItemId))
+            {
+                ++skippedCount;
+                sendFormatted(
+                    "skip WOTLK token {} ({}): reward {} ({}) already owned/equipped",
+                    tokenItemId,
+                    tokenTemplate->Name1,
+                    rewardTemplate->ItemId,
+                    rewardTemplate->Name1);
+                logWotlkEvent(
+                    Acore::StringFormat(
+                        "duplicate-prevented bot {} token {} ({}) -> reward {} ({}) already owned/equipped",
+                        player->GetName(),
+                        tokenItemId,
+                        tokenTemplate->Name1,
+                        rewardTemplate->ItemId,
+                        rewardTemplate->Name1));
+                break;
+            }
+
             std::string transactionLog;
-            bool const success = TryExchangeToken(player, entry, tokenTemplate, rewardTemplate, _wotlkDryRun, transactionLog);
+            bool const success = TryExchangeToken(player, entry, tokenTemplate, rewardTemplate, dryRun, transactionLog);
             if (success)
             {
                 ++resolvedCount;
-                sendFormatted("WOTLK {} {}", _wotlkDryRun ? "DRY RUN" : "EXCHANGE", transactionLog);
-                logWotlkEvent(Acore::StringFormat("{} {}", _wotlkDryRun ? "dry-run" : "exchange", transactionLog));
+                sendFormatted("WOTLK {} {}", dryRun ? "DRY RUN" : "EXCHANGE", transactionLog);
+                logWotlkEvent(Acore::StringFormat("{} {}", dryRun ? "dry-run" : "exchange", transactionLog));
                 if (maxPerBotPerPass != 0 && resolvedCount >= maxPerBotPerPass)
                     break;
                 continue;
@@ -5084,7 +5294,7 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
             {
                 logWotlkEvent(Acore::StringFormat("skip bot {} token {} ({}): {}", player->GetName(), tokenItemId, tokenTemplate->Name1, transactionLog));
             }
-            if (!_wotlkDryRun)
+            if (!dryRun)
                 break;
         }
 
@@ -5098,7 +5308,7 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         player->GetName(),
         resolvedCount,
         skippedCount,
-        _wotlkDryRun ? "dry-run" : "real exchange");
+        dryRun ? "dry-run" : "real exchange");
     logWotlkEvent(
         Acore::StringFormat(
             "{} bot {} exchange complete: resolved={} skipped={} mode={}",
@@ -5106,7 +5316,7 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
             player->GetName(),
             resolvedCount,
             skippedCount,
-            _wotlkDryRun ? "dry-run" : "real exchange"));
+            dryRun ? "dry-run" : "real exchange"));
 }
 
 void BotTokenExchangerMgr::MaybeLogWotlkUnresolvedTelemetry(
