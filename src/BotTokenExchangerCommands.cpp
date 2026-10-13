@@ -210,7 +210,7 @@ public:
             return false;
         }
 
-        if (!player->GetSession() || !player->GetSession()->IsBot())
+        if (!player->GetSession() || !player->GetSession()->IsHeadless())
         {
             handler->SendSysMessage("Selected player is not a Playerbot.");
             return false;
@@ -257,7 +257,7 @@ public:
             return false;
         }
 
-        if (!player->GetSession() || !player->GetSession()->IsBot())
+        if (!player->GetSession() || !player->GetSession()->IsHeadless())
         {
             handler->SendSysMessage("Selected player is not a Playerbot.");
             return false;

@@ -343,7 +343,7 @@ void BotTokenExchangerMgr::HandlePlayerStoreNewItem(Player* player, Item* item, 
     if (!player->GetSession())
         return;
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     ItemTemplate const* proto = item->GetTemplate();
@@ -385,7 +385,7 @@ void BotTokenExchangerMgr::HandlePlayerLogin(Player* player)
     if (!_runtimePreloaded)
         PreloadRuntimeCaches();
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     if (_autoExchangeEnable && _autoExchangeOnLogin)
@@ -400,7 +400,7 @@ void BotTokenExchangerMgr::HandlePlayerUpdate(Player* player, uint32 /*diff*/)
     if (!_enabled || !player || !player->GetSession())
         return;
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     if (!_autoExchangeEnable && !_wotlkAutoExchangeEnable)
@@ -437,7 +437,7 @@ void BotTokenExchangerMgr::QueueAutoExchange(Player* player, uint32 tokenItemId,
     if (!_autoExchangeEnable || !_exchangeEnable || _dryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     LoadResolverMappings();
@@ -518,7 +518,7 @@ void BotTokenExchangerMgr::QueueWotlkAutoExchange(Player* player, uint32 tokenIt
     if (!_wotlkAutoExchangeEnable || !_wotlkExchangeEnable || _wotlkDryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     LoadWotlkResolverMappings();
@@ -571,7 +571,7 @@ void BotTokenExchangerMgr::ProcessAutoExchangeQueue(Player* player)
     if (!_autoExchangeEnable || !_exchangeEnable || _dryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     if (!player->IsInWorld())
@@ -623,7 +623,7 @@ void BotTokenExchangerMgr::ProcessWotlkAutoExchangeQueue(Player* player)
     if (!_wotlkAutoExchangeEnable || !_wotlkExchangeEnable || _wotlkDryRun || _resolveOnly || !player || !player->GetSession())
         return;
 
-    if (_onlyPlayerbots && !player->GetSession()->IsBot())
+    if (_onlyPlayerbots && !player->GetSession()->IsHeadless())
         return;
 
     if (!player->IsInWorld())
@@ -2168,7 +2168,7 @@ void BotTokenExchangerMgr::ShowSelectedRole(ChatHandler* handler)
         return;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -2189,7 +2189,7 @@ void BotTokenExchangerMgr::SetSelectedRolePreference(ChatHandler* handler, std::
         return;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -2266,7 +2266,7 @@ Player* BotTokenExchangerMgr::ResolveOnlineBotByName(ChatHandler* handler, std::
         return nullptr;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->PSendSysMessage("Selected target {} is not a Playerbot.", botName);
         return nullptr;
@@ -2955,7 +2955,7 @@ bool BotTokenExchangerMgr::HandlePlayerbotBeforeLootRoll(Player* bot, ItemTempla
     if (!_enabled || !_playerbotLootPassEnable || !bot || !itemTemplate)
         return false;
 
-    if (_onlyPlayerbots && (!bot->GetSession() || !bot->GetSession()->IsBot()))
+    if (_onlyPlayerbots && (!bot->GetSession() || !bot->GetSession()->IsHeadless()))
         return false;
 
     if (!HasStagedResolverEntries(itemTemplate->ItemId))
@@ -3084,7 +3084,7 @@ void BotTokenExchangerMgr::ResolveTokenItem(ChatHandler* handler, Player* player
     std::vector<ResolverEntry> const* entries = GetResolverEntries(tokenItemId);
     uint32 const stagedCount = entries ? static_cast<uint32>(entries->size()) : 0;
 
-    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsBot()))
+    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsHeadless()))
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -3239,7 +3239,7 @@ void BotTokenExchangerMgr::ResolveSelectedTokenRewards(ChatHandler* handler)
         return;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -3262,7 +3262,7 @@ void BotTokenExchangerMgr::ResolveWotlkTokenItem(ChatHandler* handler, Player* p
     std::vector<ResolverEntry> const* entries = GetWotlkResolverEntries(tokenItemId);
     uint32 const stagedCount = entries ? static_cast<uint32>(entries->size()) : 0;
 
-    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsBot()))
+    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsHeadless()))
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -3366,7 +3366,7 @@ void BotTokenExchangerMgr::ResolveWotlkSelectedTokenRewards(ChatHandler* handler
         return;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -3540,7 +3540,7 @@ void BotTokenExchangerMgr::ValidateWotlkSingleTokenChain(ChatHandler* handler, b
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
         {
             (void)guid;
-            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+            if (!player || !player->GetSession() || !player->GetSession()->IsHeadless())
                 continue;
             onlineBots.push_back(player);
         }
@@ -3858,7 +3858,7 @@ void BotTokenExchangerMgr::ValidateWotlkSingleTokenChainUnresolved(ChatHandler* 
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
         {
             (void)guid;
-            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+            if (!player || !player->GetSession() || !player->GetSession()->IsHeadless())
                 continue;
             onlineBots.push_back(player);
         }
@@ -4078,7 +4078,7 @@ void BotTokenExchangerMgr::ValidateTbcTokenChain(ChatHandler* handler, bool verb
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
         {
             (void)guid;
-            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+            if (!player || !player->GetSession() || !player->GetSession()->IsHeadless())
                 continue;
             onlineBots.push_back(player);
         }
@@ -4388,7 +4388,7 @@ void BotTokenExchangerMgr::ValidateTbcTokenChainUnresolved(ChatHandler* handler)
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
         {
             (void)guid;
-            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+            if (!player || !player->GetSession() || !player->GetSession()->IsHeadless())
                 continue;
             onlineBots.push_back(player);
         }
@@ -4593,7 +4593,7 @@ void BotTokenExchangerMgr::TickStartupValidation(uint64 nowMs)
         for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
         {
             (void)guid;
-            if (!player || !player->GetSession() || !player->GetSession()->IsBot())
+            if (!player || !player->GetSession() || !player->GetSession()->IsHeadless())
                 continue;
             ++onlineBotCount;
         }
@@ -4761,7 +4761,7 @@ void BotTokenExchangerMgr::ExchangePlayerTokens(Player* player, char const* labe
         return;
     }
 
-    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsBot()))
+    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsHeadless()))
     {
         if (handler)
             handler->SendSysMessage("Selected player is not a Playerbot.");
@@ -5053,7 +5053,7 @@ void BotTokenExchangerMgr::ExchangeWotlkPlayerTokens(Player* player, char const*
         return;
     }
 
-    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsBot()))
+    if (_onlyPlayerbots && (!player->GetSession() || !player->GetSession()->IsHeadless()))
     {
         if (handler)
             handler->SendSysMessage("Selected player is not a Playerbot.");
@@ -5432,7 +5432,7 @@ void BotTokenExchangerMgr::ExchangeWotlkSelectedTokens(ChatHandler* handler)
         return;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -5471,7 +5471,7 @@ void BotTokenExchangerMgr::ExchangeSelectedTokens(ChatHandler* handler)
         return;
     }
 
-    if (!player->GetSession() || !player->GetSession()->IsBot())
+    if (!player->GetSession() || !player->GetSession()->IsHeadless())
     {
         handler->SendSysMessage("Selected player is not a Playerbot.");
         return;
@@ -5520,7 +5520,7 @@ void BotTokenExchangerMgr::ExchangeGroupTokens(ChatHandler* handler)
     for (GroupReference* itr = player->GetGroup()->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
         Player* member = itr->GetSource();
-        if (!member || !member->GetSession() || !member->GetSession()->IsBot())
+        if (!member || !member->GetSession() || !member->GetSession()->IsHeadless())
             continue;
 
         ++scannedBots;
